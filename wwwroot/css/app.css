@@ -201,6 +201,56 @@ a:hover { color: var(--brand-hover); }
 /* Fallback if no attribute yet */
 :root:not([data-bs-theme]) .icon-sun { display: block; }
 
+/* ── Category filter chips ─────────────────── */
+.cat-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: .25rem .65rem;
+    border-radius: 999px;
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--tm);
+    background: var(--surface-2);
+    border: 1.5px solid var(--border);
+    text-decoration: none;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+.cat-chip:hover {
+    color: var(--chip-color, var(--brand));
+    border-color: var(--chip-color, var(--brand));
+    background: color-mix(in srgb, var(--chip-color, var(--brand)) 10%, transparent);
+    text-decoration: none;
+}
+.cat-chip-active {
+    color: var(--chip-color, var(--brand)) !important;
+    border-color: var(--chip-color, var(--brand)) !important;
+    background: color-mix(in srgb, var(--chip-color, var(--brand)) 15%, transparent) !important;
+    font-weight: 600;
+}
+
+/* ── Clickable metric/stat cards ────────────── */
+a.metric-card, a.stat-card, a.hero-card {
+    text-decoration: none;
+    display: block;
+    transition: box-shadow var(--transition), border-color var(--transition), transform var(--transition);
+}
+a.metric-card:hover, a.stat-card:hover, a.hero-card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--brand);
+    transform: translateY(-1px);
+    text-decoration: none;
+}
+
+/* ── Clickable category rows ────────────────── */
+.cat-row-link {
+    display: block;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition);
+}
+.cat-row-link:hover { background: var(--surface-2); text-decoration: none; }
+
 /* ── Hamburger (hidden on desktop) ─────────── */
 .nav-hamburger { display: none; }
 

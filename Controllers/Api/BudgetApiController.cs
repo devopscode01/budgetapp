@@ -55,7 +55,9 @@ public sealed class BudgetApiController(
     SpendingService spending,
     CurrentUserService currentUser,
     IConfiguration config,
-    IHttpClientFactory httpFactory) : ControllerBase
+    IHttpClientFactory httpFactory,
+    ILogger<BudgetApiController> logger,
+    BudgetEtlService etl) : ControllerBase
 {
     // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,9 @@ public sealed class BudgetApiController(
     public async Task<IActionResult> Token([FromBody] TokenRequest req, CancellationToken ct)
     {
         var kc = config.GetSection("Keycloak");
+        logger.LogInformation("Mobile login attempt for user '{Username}' using client '{ClientId}'",
+            req.Username, kc["ClientId"]);
+
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"]    = "password",
@@ -77,9 +82,15 @@ public sealed class BudgetApiController(
         var resp = await http.PostAsync($"{kc["Authority"]}/protocol/openid-connect/token", form, ct)
             .ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode)
-            return Unauthorized(new { error = "Invalid credentials" });
 
+        if (!resp.IsSuccessStatusCode)
+        {
+            logger.LogWarning("Mobile login failed for '{Username}': HTTP {Status} — {Body}",
+                req.Username, (int)resp.StatusCode, body);
+            return Unauthorized(new { error = "Invalid credentials" });
+        }
+
+        logger.LogInformation("Mobile login succeeded for '{Username}'", req.Username);
         using var doc = JsonDocument.Parse(body);
         return Ok(new TokenResponse(
             doc.RootElement.GetProperty("access_token").GetString()!,
@@ -320,6 +331,38 @@ public sealed class BudgetApiController(
         });
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
         return Ok();
+    }
+
+    // ── Import ────────────────────────────────────────────────────────────────
+
+    [HttpPost("import/upload")]
+    [RequestSizeLimit(50 * 1024 * 1024)]
+    public async Task<IActionResult> ImportUpload([FromForm] IFormFile file, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (file is null || file.Length == 0) return BadRequest(new { error = "No file provided." });
+        if (!file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "Only PDF files are supported." });
+        var result = await etl.UploadPdfFilesAsync([file], null, null, ct).ConfigureAwait(false);
+        return Ok(new { saved = result.Saved, skipped = result.Skipped, messages = result.Messages });
+    }
+
+    [HttpPost("import/run")]
+    public async Task<IActionResult> ImportRun(string? ym, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        var month = MonthHelper.ParseMonth(ym);
+        var folder = MonthInboxFolderFactory.MonthFolderName(month);
+        var run = await etl.RunAsync(month.Year, folder, currentUser.UserId, ct).ConfigureAwait(false);
+        return Ok(new
+        {
+            success = run.Success,
+            inserted = run.TransactionsInserted,
+            skipped = run.TransactionsSkippedDuplicate,
+            files = run.FilesSeen
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -37,10 +37,16 @@
         .ToList();
 }
 
+@{
+    var activeCategory = ViewBag.ActiveCategory as string;
+}
+
 @* ── Header ─────────────────────────────────── *@
-<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div>
-        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">@Model.MonthLabel — Spending</h4>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">
+            @Model.MonthLabel — @(activeCategory ?? "Spending")
+        </h4>
         <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">
             <span class="text-money fw-semibold" style="color:var(--t1)">@Model.TotalSpend.ToString("C2")</span>
             total across @spendCats.Count categories
@@ -48,6 +54,25 @@
     </div>
     <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@Model.MonthYm"
        class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+@* ── Category filter chips ─────────────────── *@
+<div class="mb-4" style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center">
+    <a href="@Url.Action("Index", new { ym = Model.MonthYm })"
+       class="cat-chip @(activeCategory == null ? "cat-chip-active" : "")">All</a>
+    <a href="@Url.Action("Index", new { ym = Model.MonthYm, category = "Income" })"
+       class="cat-chip @(activeCategory == "Income" ? "cat-chip-active" : "")"
+       style="--chip-color:#22C55E">Income</a>
+    @foreach (var cat in spendCats)
+    {
+        var chipActive = activeCategory == CatLabel(cat.Category) ? "cat-chip-active" : "";
+        <a href="@Url.Action("Index", new { ym = Model.MonthYm, category = CatLabel(cat.Category) })"
+           class="cat-chip @chipActive"
+           style="--chip-color:@CatColor(cat.Category)">
+            @CatLabel(cat.Category)
+            <span style="opacity:.65;font-size:.75em;margin-left:.25em">@cat.Amount.ToString("C0")</span>
+        </a>
+    }
 </div>
 
 @* ── Subscriptions (Rocket Money style) ──────── *@
@@ -176,7 +201,9 @@
                 <tbody>
                     @foreach (var tx in Model.Transactions)
                     {
-                        <tr>
+                        var txCat = CatLabel(tx.Category);
+                        var txHide = activeCategory != null && txCat != activeCategory ? "style=\"display:none\"" : "";
+                        <tr data-cat="@txCat" @Html.Raw(txHide)>
                             <td class="text-nowrap" style="color:var(--tf)">@tx.PostedDate.ToString("MMM d")</td>
                             <td style="max-width:260px" class="text-truncate">@tx.Description</td>
                             <td>
@@ -231,7 +258,9 @@
                 <tbody>
                     @foreach (var m in Model.ManualExpenses)
                     {
-                        <tr>
+                        var mCat = CatLabel(m.Category);
+                        var mHide = activeCategory != null && mCat != activeCategory ? "style=\"display:none\"" : "";
+                        <tr data-cat="@mCat" @Html.Raw(mHide)>
                             <td>@m.Description</td>
                             <td>
                                 <span class="cat-badge" style="background:@(CatColor(m.Category))22;color:@CatColor(m.Category)">

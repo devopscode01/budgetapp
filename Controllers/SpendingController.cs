@@ -10,12 +10,13 @@ namespace BudgetApp.Controllers;
 public sealed class SpendingController(SpendingService spending, CurrentUserService currentUser, BudgetApp.Data.BudgetDbContext db) : Controller
 {
     [HttpGet]
-    public async Task<IActionResult> Index(string? ym, CancellationToken ct)
+    public async Task<IActionResult> Index(string? ym, string? category, CancellationToken ct)
     {
         var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var month = MonthHelper.ParseMonth(ym);
         var vm = await spending.GetMonthAsync(month, householdIds, ct).ConfigureAwait(false);
         ViewBag.AvailableMonths = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
+        ViewBag.ActiveCategory = category?.Trim();
         return View(vm);
     }
 

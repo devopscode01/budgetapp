@@ -17,11 +17,19 @@
   "offlineSessionMaxLifespan": 5184000,
   "roles": {
     "realm": [
-      { "name": "budget-admin", "description": "Full admin access — can approve and manage users" },
-      { "name": "budget-member", "description": "Regular household member" }
+      {
+        "name": "budget-admin",
+        "description": "Full admin access \u2014 can approve and manage users"
+      },
+      {
+        "name": "budget-member",
+        "description": "Regular household member"
+      }
     ]
   },
-  "defaultRoles": ["budget-member"],
+  "defaultRoles": [
+    "budget-member"
+  ],
   "clients": [
     {
       "clientId": "budget-web",
@@ -42,7 +50,9 @@
         "http://host.docker.internal:8080/*",
         "https://budget.homeland-one.org/*"
       ],
-      "webOrigins": ["+"],
+      "webOrigins": [
+        "+"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:8080/*##http://127.0.0.1:8080/*##http://host.docker.internal:8080/*##https://budget.homeland-one.org/*"
@@ -80,7 +90,9 @@
         "com.budget.app://*",
         "http://localhost/*"
       ],
-      "webOrigins": ["+"],
+      "webOrigins": [
+        "+"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
       }
@@ -97,11 +109,17 @@
       "credentials": [
         {
           "type": "password",
-          "value": "changeme",
+          "value": "Budget2026!",
           "temporary": false
         }
       ],
-      "realmRoles": ["budget-admin", "budget-member"]
+      "realmRoles": [
+        "budget-admin",
+        "budget-member",
+        "default-roles-budget",
+        "offline_access",
+        "uma_authorization"
+      ]
     }
   ]
 }

@@ -112,34 +112,38 @@
     <div class="col-12 col-md-7 col-lg-8">
         <div class="row g-3 h-100">
             <div class="col-6 col-xl-3">
-                <div class="metric-card h-100">
+                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm" asp-route-category="Income"
+                   class="metric-card h-100" title="View income transactions">
                     <div class="m-label">Income</div>
                     <div class="m-value text-success text-money">@income.ToString("C0")</div>
-                    <div class="m-sub">This month</div>
-                </div>
+                    <div class="m-sub">This month ↗</div>
+                </a>
             </div>
             <div class="col-6 col-xl-3">
-                <div class="metric-card h-100">
+                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
+                   class="metric-card h-100" title="View all spending">
                     <div class="m-label">Spent</div>
                     <div class="m-value text-money">@spent.ToString("C0")</div>
-                    <div class="m-sub">@(spendCats.Count) categories</div>
-                </div>
+                    <div class="m-sub">@(spendCats.Count) categories ↗</div>
+                </a>
             </div>
             <div class="col-6 col-xl-3">
-                <div class="metric-card h-100">
+                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
+                   class="metric-card h-100" title="View transactions">
                     <div class="m-label">Net Balance</div>
                     <div class="m-value text-money @(net >= 0 ? "text-success" : "text-danger")">
                         @(net >= 0 ? "+" : "")@net.ToString("C0")
                     </div>
-                    <div class="m-sub">@(net >= 0 ? "Under budget" : "Over budget")</div>
-                </div>
+                    <div class="m-sub">@(net >= 0 ? "Under budget" : "Over budget") ↗</div>
+                </a>
             </div>
             <div class="col-6 col-xl-3">
-                <div class="metric-card h-100">
+                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
+                   class="metric-card h-100" title="View all transactions">
                     <div class="m-label">Transactions</div>
                     <div class="m-value">@(Model.Current.Transactions.Count + Model.Current.ManualExpenses.Count)</div>
-                    <div class="m-sub">@Model.Current.Transactions.Count imported</div>
-                </div>
+                    <div class="m-sub">@Model.Current.Transactions.Count imported ↗</div>
+                </a>
             </div>
         </div>
     </div>
@@ -159,7 +163,9 @@
             @foreach (var cat in spendCats)
             {
                 var segW = income > 0 ? (double)(cat.Amount / income * 100) : 0;
-                <div class="alloc-seg" style="width:@segW.ToString("F2")%;background:@CatColor(cat.Category)" title="@CatLabel(cat.Category): @cat.Amount.ToString("C0")"></div>
+                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm" asp-route-category="@CatLabel(cat.Category)"
+                   class="alloc-seg" style="width:@segW.ToString("F2")%;background:@CatColor(cat.Category);display:block;text-decoration:none"
+                   title="@CatLabel(cat.Category): @cat.Amount.ToString("C0") — click to view"></a>
             }
         </div>
         <div class="d-flex gap-3 flex-wrap" style="font-size:.75rem">
@@ -196,20 +202,23 @@
                 @foreach (var cat in spendCats)
                 {
                     var pct = spent > 0 ? (double)(cat.Amount / spent * 100) : 0;
-                    <div class="mb-3">
+                    <a asp-controller="Spending" asp-action="Index"
+                       asp-route-ym="@Model.MonthYm" asp-route-category="@CatLabel(cat.Category)"
+                       class="cat-row-link mb-3 p-2" title="View @CatLabel(cat.Category) transactions">
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <span class="cat-badge" style="background:@(CatColor(cat.Category))22;color:@CatColor(cat.Category)">
                                 @CatLabel(cat.Category)
                             </span>
                             <div class="d-flex align-items-center gap-2">
                                 <span style="font-size:.75rem;color:var(--tf)">@pct.ToString("F0")%</span>
-                                <span class="fw-semibold text-money" style="font-size:.9rem">@cat.Amount.ToString("C0")</span>
+                                <span class="fw-semibold text-money" style="font-size:.9rem;color:var(--t1)">@cat.Amount.ToString("C0")</span>
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="color:var(--tf);flex-shrink:0"><path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </div>
                         </div>
                         <div class="prog-track">
                             <div class="prog-fill" style="width:@pct.ToString("F1")%;background:@CatColor(cat.Category)"></div>
                         </div>
-                    </div>
+                    </a>
                 }
             }
         </div>
@@ -309,10 +318,10 @@
         var labels = @Html.Raw(chartLabels);
         var data   = @Html.Raw(chartData);
         var colors = @Html.Raw(chartColors);
+        var ym     = '@Model.MonthYm';
+        var spendingBase = '@Url.Action("Index", "Spending")';
         var theme  = document.documentElement.getAttribute('data-bs-theme') || 'light';
         var isDark = theme === 'dark';
-
-        var getTextColor = function(d) { return d ? '#94A3B8' : '#6B7280'; };
 
         var ctx = document.getElementById('donutChart');
         if (!ctx) return;
@@ -333,20 +342,25 @@
                 cutout: '68%',
                 animation: { animateScale: true, duration: 600 },
                 plugins: {
-                    legend: {
-                        display: false
-                    },
+                    legend: { display: false },
                     tooltip: {
                         callbacks: {
                             label: function(ctx) {
                                 var val = ctx.parsed;
-                                return ' $' + val.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                                return ' $' + val.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + ' — click to view';
                             }
                         }
                     }
+                },
+                onClick: function(evt, elements) {
+                    if (!elements.length) return;
+                    var cat = labels[elements[0].index];
+                    window.location.href = spendingBase + '?ym=' + ym + '&category=' + encodeURIComponent(cat);
                 }
             }
         });
+
+        ctx.style.cursor = 'pointer';
 
         window.updateChartTheme = function(newTheme) {
             var dark = newTheme === 'dark';
