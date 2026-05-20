@@ -39,12 +39,13 @@
       "redirectUris": [
         "http://localhost:8080/*",
         "http://127.0.0.1:8080/*",
-        "http://host.docker.internal:8080/*"
+        "http://host.docker.internal:8080/*",
+        "https://budget.homeland-one.org/*"
       ],
       "webOrigins": ["+"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:8080/*##http://127.0.0.1:8080/*##http://host.docker.internal:8080/*"
+        "post.logout.redirect.uris": "http://localhost:8080/*##http://127.0.0.1:8080/*##http://host.docker.internal:8080/*##https://budget.homeland-one.org/*"
       },
       "protocolMappers": [
         {
