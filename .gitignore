@@ -1,6 +1,10 @@
 # ── Runtime data (never commit) ──────────────────────────────────────────────
-# Database, uploaded statements, data-protection keys, and Keycloak H2 data
-Data/
+# Database, uploaded statements, and data-protection keys
+Data/*.db
+Data/*.db-shm
+Data/*.db-wal
+Data/keys/
+Data/Statements/
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 .env
