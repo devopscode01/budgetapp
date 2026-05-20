@@ -73,8 +73,49 @@
                 <path d="M13.5 9A6 6 0 0 1 7 2.5a6 6 0 1 0 6.5 6.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
         </button>
+
+        <button class="theme-btn nav-hamburger" id="navHamburger" title="Menu" type="button" aria-expanded="false" aria-controls="mobileMenu">
+            <svg class="ham-open" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <svg class="ham-close" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none">
+                <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+        </button>
     </div>
 </nav>
+
+<div class="mobile-menu" id="mobileMenu" hidden>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Dashboard" ? "active" : "")"
+       asp-controller="Dashboard" asp-action="Index">Dashboard</a>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Spending" ? "active" : "")"
+       asp-controller="Spending" asp-action="Index">Spending</a>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Manual" ? "active" : "")"
+       asp-controller="Manual" asp-action="Index">Manual</a>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Debt" ? "active" : "")"
+       asp-controller="Debt" asp-action="Index">Debts</a>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Asset" ? "active" : "")"
+       asp-controller="Asset" asp-action="Index">Assets</a>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" ? "active" : "")"
+       asp-controller="Import" asp-action="Index">Import</a>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        @if (User.FindFirst("budget_admin")?.Value == "true")
+        {
+            <a class="mobile-nav-link" asp-controller="Admin" asp-action="Users">Admin</a>
+        }
+        <a class="mobile-nav-link" asp-controller="Account" asp-action="Profile">Profile</a>
+        <form method="post" asp-controller="Account" asp-action="Logout">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="mobile-nav-link mobile-signout">Sign out</button>
+        </form>
+    }
+    <div class="mobile-month-row">
+        <label for="monthPickerMobile" style="font-size:.8125rem;color:var(--tm);font-weight:500;">Month</label>
+        <input type="month" id="monthPickerMobile" class="month-picker"
+               value="@(ViewBag.MonthYm ?? ViewData["MonthYm"] ?? "")" />
+    </div>
+</div>
 
 <div class="page">
     @RenderBody()
@@ -85,16 +126,18 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
 (function () {
-    var picker = document.getElementById('monthPicker');
-    if (picker) {
-        picker.addEventListener('change', function () {
-            var ym = picker.value;
-            if (!ym) return;
-            var url = new URL(window.location.href);
-            url.searchParams.set('ym', ym);
-            window.location.href = url.toString();
-        });
+    function gotoMonth(ym) {
+        if (!ym) return;
+        var url = new URL(window.location.href);
+        url.searchParams.set('ym', ym);
+        window.location.href = url.toString();
     }
+
+    var picker = document.getElementById('monthPicker');
+    if (picker) picker.addEventListener('change', function () { gotoMonth(picker.value); });
+
+    var pickerM = document.getElementById('monthPickerMobile');
+    if (pickerM) pickerM.addEventListener('change', function () { gotoMonth(pickerM.value); });
 
     var btn = document.getElementById('themeToggle');
     if (btn) {
@@ -104,6 +147,18 @@
             html.setAttribute('data-bs-theme', next);
             localStorage.setItem('bgt', next);
             if (window.updateChartTheme) window.updateChartTheme(next);
+        });
+    }
+
+    var ham = document.getElementById('navHamburger');
+    var menu = document.getElementById('mobileMenu');
+    if (ham && menu) {
+        ham.addEventListener('click', function () {
+            var open = !menu.hidden;
+            menu.hidden = open;
+            ham.setAttribute('aria-expanded', String(!open));
+            ham.querySelector('.ham-open').style.display  = open ? '' : 'none';
+            ham.querySelector('.ham-close').style.display = open ? 'none' : '';
         });
     }
 })();

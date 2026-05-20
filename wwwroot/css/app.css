@@ -201,6 +201,65 @@ a:hover { color: var(--brand-hover); }
 /* Fallback if no attribute yet */
 :root:not([data-bs-theme]) .icon-sun { display: block; }
 
+/* ── Hamburger (hidden on desktop) ─────────── */
+.nav-hamburger { display: none; }
+
+/* ── Mobile menu panel ─────────────────────── */
+.mobile-menu {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: .5rem 1rem 1rem;
+    position: sticky;
+    top: 56px;
+    z-index: 199;
+    box-shadow: var(--shadow-md);
+}
+
+.mobile-nav-link {
+    display: block;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--t1);
+    text-decoration: none;
+    padding: .75rem .5rem;
+    border-bottom: 1px solid var(--border-sub);
+    background: none;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    font-family: inherit;
+}
+.mobile-nav-link:last-child { border-bottom: none; }
+.mobile-nav-link:hover { color: var(--brand); text-decoration: none; }
+.mobile-nav-link.active { color: var(--brand); font-weight: 600; }
+.mobile-signout { color: var(--red) !important; }
+
+.mobile-month-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .75rem .5rem 0;
+}
+.mobile-month-row .month-picker { flex: 1; max-width: none; }
+
+@media (min-width: 768px) {
+    .nav-hamburger { display: none !important; }
+    .mobile-menu   { display: none !important; }
+}
+
+@media (max-width: 767px) {
+    .nav-hamburger { display: flex; }
+    .nav-links     { display: none; }
+    .month-picker  { display: none; }
+    .nav-user      { display: none; }
+    /* Keep theme toggle and sign-out visible on mobile nav bar */
+}
+
 /* ── Page wrapper ──────────────────────────── */
 .page { max-width: 1180px; margin: 0 auto; padding: 1.75rem 1.5rem; }
 @media (max-width: 576px) { .page { padding: 1.25rem 1rem; } }
