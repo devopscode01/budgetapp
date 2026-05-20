@@ -35,6 +35,19 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteTransaction(int id, string? ym, CancellationToken ct)
+    {
+        var tx = await spending.FindTransactionAsync(id, currentUser.UserId, ct).ConfigureAwait(false);
+        if (tx is not null)
+        {
+            spending.Delete(tx);
+            await spending.SaveAsync(ct).ConfigureAwait(false);
+        }
+        return RedirectToAction(nameof(Index), new { ym });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> EditTransaction(int id, string? description, decimal amount, ExpenseCategory category, string? ym, CancellationToken ct)
     {
         var tx = await spending.FindTransactionAsync(id, currentUser.UserId, ct).ConfigureAwait(false);

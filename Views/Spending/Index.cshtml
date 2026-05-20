@@ -185,7 +185,7 @@
                                 </span>
                             </td>
                             <td class="text-end text-money">@tx.Amount.ToString("C2")</td>
-                            <td style="width:32px">
+                            <td style="width:64px;white-space:nowrap">
                                 <button class="btn btn-link btn-xs text-muted recategorize-btn p-0"
                                         data-id="@tx.Id"
                                         data-current="@((int)tx.Category)"
@@ -193,6 +193,14 @@
                                         data-amount="@tx.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
                                         title="Edit transaction"
                                         style="font-size:1rem;line-height:1">&#9998;</button>
+                                <form method="post" asp-controller="Spending" asp-action="DeleteTransaction" class="d-inline delete-tx-form">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="ym" value="@Model.MonthYm" />
+                                    <input type="hidden" name="id" value="@tx.Id" />
+                                    <button type="submit" class="btn btn-link btn-xs text-muted p-0 ms-1"
+                                            title="Delete transaction"
+                                            style="font-size:.9rem;line-height:1;color:var(--red)!important">&#x2715;</button>
+                                </form>
                             </td>
                         </tr>
                     }
@@ -281,6 +289,11 @@
 
 @section Scripts {
 <script>
+document.querySelectorAll('.delete-tx-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+        if (!confirm('Delete this transaction?')) e.preventDefault();
+    });
+});
 document.querySelectorAll('.recategorize-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
         document.getElementById('editId').value = btn.dataset.id;

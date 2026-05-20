@@ -56,6 +56,8 @@ public sealed class SpendingService(BudgetDbContext db)
             .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId, ct)
             .ConfigureAwait(false);
 
+    public void Delete(ParsedTransaction tx) => db.ParsedTransactions.Remove(tx);
+
     public Task SaveAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 
     public async Task<IReadOnlyList<string>> GetAvailableMonthsAsync(string userId, CancellationToken ct = default)
