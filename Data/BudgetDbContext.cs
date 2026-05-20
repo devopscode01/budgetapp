@@ -10,6 +10,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
     public DbSet<EtlRun> EtlRuns => Set<EtlRun>();
     public DbSet<Debt> Debts => Set<Debt>();
     public DbSet<BudgetUser> BudgetUsers => Set<BudgetUser>();
+    public DbSet<Asset> Assets => Set<Asset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +59,15 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Email).HasMaxLength(256);
             e.Property(x => x.DisplayName).HasMaxLength(256);
         });
+
+        modelBuilder.Entity<Asset>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.UserId).HasMaxLength(128);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.Value).HasPrecision(18, 2);
+        });
     }
 
     public async Task EnsureSchemaAsync(CancellationToken ct = default)
@@ -91,6 +101,20 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
                 "IsAdmin" INTEGER NOT NULL DEFAULT 0,
                 "CreatedUtc" TEXT NOT NULL DEFAULT '',
                 "ApprovedUtc" TEXT NULL
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // Assets table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "Assets" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_Assets" PRIMARY KEY AUTOINCREMENT,
+                "UserId" TEXT NOT NULL DEFAULT '',
+                "Name" TEXT NOT NULL DEFAULT '',
+                "Type" INTEGER NOT NULL DEFAULT 0,
+                "Value" TEXT NOT NULL DEFAULT '0',
+                "Notes" TEXT NOT NULL DEFAULT '',
+                "UpdatedUtc" TEXT NOT NULL DEFAULT ''
             );
             """, cancellationToken: ct).ConfigureAwait(false);
 

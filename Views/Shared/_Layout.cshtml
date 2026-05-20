@@ -34,6 +34,8 @@
            asp-controller="Manual" asp-action="Index">Manual</a>
         <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Debt" ? "active" : "")"
            asp-controller="Debt" asp-action="Index">Debts</a>
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Asset" ? "active" : "")"
+           asp-controller="Asset" asp-action="Index">Assets</a>
         <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" ? "active" : "")"
            asp-controller="Import" asp-action="Index">Import</a>
     </div>

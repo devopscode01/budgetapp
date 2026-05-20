@@ -53,3 +53,11 @@ public sealed class DebtVm
     public decimal TotalBalance { get; init; }
     public decimal TotalMinPayment { get; init; }
 }
+
+public sealed class AssetVm
+{
+    public IReadOnlyList<Asset> Assets { get; init; } = [];
+    public decimal TotalAssets { get; init; }
+    public decimal TotalDebts { get; init; }
+    public decimal NetWorth => TotalAssets - TotalDebts;
+}

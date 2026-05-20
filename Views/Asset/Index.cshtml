@@ -1,0 +1,269 @@
+@model BudgetApp.ViewModels.AssetVm
+@using BudgetApp.Models
+@{
+    ViewData["Title"] = "Assets";
+
+    string TypeClass(AssetType t) => t switch {
+        AssetType.RealEstate => "realestate",
+        AssetType.Stock      => "stock",
+        AssetType.Retirement => "retirement",
+        AssetType.Vehicle    => "vehicle",
+        AssetType.Cash       => "cash",
+        AssetType.Bond       => "bond",
+        _                    => "other"
+    };
+    string TypeLabel(AssetType t) => t switch {
+        AssetType.RealEstate => "Real Estate",
+        AssetType.Stock      => "Stocks / ETFs",
+        AssetType.Retirement => "Retirement",
+        AssetType.Vehicle    => "Vehicle",
+        AssetType.Cash       => "Cash / Savings",
+        AssetType.Bond       => "Bonds",
+        _                    => "Other"
+    };
+    string TypeColor(AssetType t) => t switch {
+        AssetType.RealEstate => "#5B6EF7",
+        AssetType.Stock      => "#10B981",
+        AssetType.Retirement => "#F59E0B",
+        AssetType.Vehicle    => "#8B5CF6",
+        AssetType.Cash       => "#14B8A6",
+        AssetType.Bond       => "#6366F1",
+        _                    => "#64748B"
+    };
+
+    var byType = Model.Assets
+        .GroupBy(a => a.Type)
+        .OrderByDescending(g => g.Sum(a => a.Value))
+        .ToList();
+}
+
+@* ── Header ──────────────────────────────────── *@
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">Assets &amp; Investments</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">Track your net worth across all asset types</p>
+    </div>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addAssetModal">+ Add Asset</button>
+</div>
+
+@* ── Net worth summary ────────────────────────── *@
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="metric-card">
+            <div class="m-label">Total Assets</div>
+            <div class="m-value text-money text-success">@Model.TotalAssets.ToString("C0")</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="metric-card">
+            <div class="m-label">Total Debts</div>
+            <div class="m-value text-money text-danger">@Model.TotalDebts.ToString("C0")</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="metric-card">
+            <div class="m-label">Net Worth</div>
+            <div class="m-value text-money @(Model.NetWorth >= 0 ? "text-success" : "text-danger")">
+                @Model.NetWorth.ToString("C0")
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="metric-card">
+            <div class="m-label">Assets Tracked</div>
+            <div class="m-value">@Model.Assets.Count</div>
+        </div>
+    </div>
+</div>
+
+@* ── Asset cards ──────────────────────────────── *@
+@if (!Model.Assets.Any())
+{
+    <div class="card text-center py-5">
+        <p style="color:var(--tm)" class="mb-2">No assets tracked yet.</p>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addAssetModal">
+            + Add your first asset
+        </button>
+    </div>
+}
+else
+{
+    @* Type breakdown *@
+    <div class="card mb-4">
+        <div class="section-title">By Type</div>
+        <div class="table-responsive">
+            <table class="table budget-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th class="text-end">Value</th>
+                        <th style="width:200px">Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var grp in byType)
+                    {
+                        var pct = Model.TotalAssets > 0 ? (double)(grp.Sum(a => a.Value) / Model.TotalAssets * 100) : 0;
+                        <tr>
+                            <td>
+                                <span class="cat-badge" style="background:@(TypeColor(grp.Key))22;color:@TypeColor(grp.Key)">
+                                    @TypeLabel(grp.Key)
+                                </span>
+                            </td>
+                            <td class="text-end text-money fw-semibold">@grp.Sum(a => a.Value).ToString("C0")</td>
+                            <td>
+                                <div class="prog-track mb-1">
+                                    <div class="prog-fill" style="width:@pct.ToString("F1")%;background:@TypeColor(grp.Key)"></div>
+                                </div>
+                                <small style="color:var(--tf);font-size:.7rem">@pct.ToString("F0")%</small>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* Individual assets *@
+    <div class="row g-3">
+        @foreach (var a in Model.Assets)
+        {
+            <div class="col-md-6 col-lg-4">
+                <div class="debt-card @TypeClass(a.Type)">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <div class="fw-semibold" style="color:var(--t1)">@a.Name</div>
+                            <small style="color:var(--tm)">
+                                <span class="cat-badge" style="background:@(TypeColor(a.Type))22;color:@TypeColor(a.Type);font-size:.7rem;padding:.1rem .4rem">
+                                    @TypeLabel(a.Type)
+                                </span>
+                            </small>
+                        </div>
+                        <div class="dropdown">
+                            <button class="btn btn-link btn-sm p-0" style="color:var(--tm);font-size:1.1rem"
+                                    data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <button class="dropdown-item update-asset-btn"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#updateAssetModal"
+                                            data-id="@a.Id"
+                                            data-value="@a.Value"
+                                            data-notes="@a.Notes">
+                                        Update value
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider" /></li>
+                                <li>
+                                    <form method="post" asp-action="Delete" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@a.Id" />
+                                        <button type="submit" class="dropdown-item text-danger"
+                                                onclick="return confirm('Delete @a.Name?')">Delete</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="fs-5 fw-bold text-money mb-1" style="color:var(--t1)">@a.Value.ToString("C0")</div>
+                    @if (!string.IsNullOrWhiteSpace(a.Notes))
+                    {
+                        <div style="font-size:.8125rem;color:var(--tf);margin-top:.25rem">@a.Notes</div>
+                    }
+                    <div style="font-size:.75rem;color:var(--tf);margin-top:.35rem">
+                        Updated @a.UpdatedUtc.ToLocalTime().ToString("MMM d, yyyy")
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@* ── Add Asset Modal ──────────────────────────── *@
+<div class="modal fade" id="addAssetModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Asset</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-action="Add">
+                @Html.AntiForgeryToken()
+                <div class="modal-body row g-3">
+                    <div class="col-12">
+                        <label class="form-label">Asset Name</label>
+                        <input name="name" type="text" class="form-control"
+                               placeholder="e.g. Primary Home, TSLA, Vanguard 401k" required maxlength="200" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Type</label>
+                        <select name="type" class="form-select">
+                            <option value="0">Real Estate</option>
+                            <option value="1">Stocks / ETFs</option>
+                            <option value="2">Retirement</option>
+                            <option value="3">Vehicle</option>
+                            <option value="4">Cash / Savings</option>
+                            <option value="5">Bonds</option>
+                            <option value="6">Other</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Current Value ($)</label>
+                        <input name="value" type="number" step="0.01" min="0" class="form-control" placeholder="0.00" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notes</label>
+                        <input name="notes" type="text" class="form-control"
+                               placeholder="Optional — e.g. 5 acres in TX, ticker symbol" maxlength="500" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Asset</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@* ── Update Asset Modal ───────────────────────── *@
+<div class="modal fade" id="updateAssetModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Update Value</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-action="Update">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" id="updateAssetId" />
+                <div class="modal-body row g-3">
+                    <div class="col-12">
+                        <label class="form-label">Current Value ($)</label>
+                        <input name="value" type="number" step="0.01" min="0" class="form-control" id="updateAssetValue" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notes</label>
+                        <input name="notes" type="text" class="form-control" id="updateAssetNotes" maxlength="500" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+var updateAssetModal = document.getElementById('updateAssetModal');
+updateAssetModal.addEventListener('show.bs.modal', function(e) {
+    var btn = e.relatedTarget;
+    document.getElementById('updateAssetId').value    = btn.dataset.id;
+    document.getElementById('updateAssetValue').value = btn.dataset.value;
+    document.getElementById('updateAssetNotes').value = btn.dataset.notes;
+});
+</script>
+}

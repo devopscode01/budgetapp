@@ -73,6 +73,7 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
         int id,
         [FromForm] decimal balance,
         [FromForm] decimal minimumPayment,
+        [FromForm] decimal interestRate,
         [FromForm] string? dueDate,
         [FromForm] string? notes,
         CancellationToken ct)
@@ -84,6 +85,7 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
         {
             debt.Balance = balance;
             debt.MinimumPayment = minimumPayment;
+            debt.InterestRate = interestRate;
             debt.DueDate = DateOnly.TryParse(dueDate, out var d) ? d : null;
             debt.Notes = notes?.Trim() ?? debt.Notes;
             debt.UpdatedUtc = DateTime.UtcNow;
