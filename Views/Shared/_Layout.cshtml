@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - Budget</title>
+    <script type="importmap"></script>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/app.css" asp-append-version="true" />
+    <script>
+    (function(){
+        var t = localStorage.getItem('bgt') || 'light';
+        document.documentElement.setAttribute('data-bs-theme', t);
+    })();
+    </script>
+</head>
+<body>
+
+<nav class="app-nav">
+    <a class="app-logo" href="/">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.75"/>
+            <path d="M10 5v1.5M10 13.5V15M7.5 7.5C7.5 6.67 8.17 6 9 6h2.5C12.33 6 13 6.67 13 7.5S12.33 9 11.5 9h-3C7.67 9 7 9.67 7 10.5S7.67 12 8.5 12H11c.83 0 1.5.67 1.5 1.5S11.83 15 11 15H8.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        Budget
+    </a>
+
+    <div class="nav-links">
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Dashboard" ? "active" : "")"
+           asp-controller="Dashboard" asp-action="Index">Dashboard</a>
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Spending" ? "active" : "")"
+           asp-controller="Spending" asp-action="Index">Spending</a>
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Manual" ? "active" : "")"
+           asp-controller="Manual" asp-action="Index">Manual</a>
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Debt" ? "active" : "")"
+           asp-controller="Debt" asp-action="Index">Debts</a>
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" ? "active" : "")"
+           asp-controller="Import" asp-action="Index">Import</a>
+    </div>
+
+    <div class="nav-right">
+        <input type="month"
+               id="monthPicker"
+               class="month-picker"
+               value="@(ViewBag.MonthYm ?? ViewData["MonthYm"] ?? "")"
+               title="Select month" />
+
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            @if (User.FindFirst("budget_admin")?.Value == "true")
+            {
+                <a class="nav-link" asp-controller="Admin" asp-action="Users" title="User management">Admin</a>
+            }
+            <span class="nav-user">@(User.FindFirst("preferred_username")?.Value ?? User.Identity.Name)</span>
+            <form method="post" asp-controller="Account" asp-action="Logout" class="d-inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="theme-btn" title="Sign out">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M11 11l3-3-3-3M14 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </form>
+        }
+
+        <button class="theme-btn" id="themeToggle" title="Toggle dark / light mode" type="button">
+            <svg class="icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13.5 9A6 6 0 0 1 7 2.5a6 6 0 1 0 6.5 6.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </button>
+    </div>
+</nav>
+
+<div class="page">
+    @RenderBody()
+</div>
+
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    var picker = document.getElementById('monthPicker');
+    if (picker) {
+        picker.addEventListener('change', function () {
+            var ym = picker.value;
+            if (!ym) return;
+            var url = new URL(window.location.href);
+            url.searchParams.set('ym', ym);
+            window.location.href = url.toString();
+        });
+    }
+
+    var btn = document.getElementById('themeToggle');
+    if (btn) {
+        btn.addEventListener('click', function () {
+            var html = document.documentElement;
+            var next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-bs-theme', next);
+            localStorage.setItem('bgt', next);
+            if (window.updateChartTheme) window.updateChartTheme(next);
+        });
+    }
+})();
+</script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

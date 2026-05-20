@@ -1,0 +1,151 @@
+@{
+    Layout = null;
+    var error = ViewBag.Error as string;
+}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Request Access — Budget</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/app.css" asp-append-version="true" />
+    <script>
+        (function () {
+            var t = localStorage.getItem('bgt') || 'light';
+            document.documentElement.setAttribute('data-bs-theme', t);
+        })();
+    </script>
+    <style>
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            font-family: 'Inter', system-ui, sans-serif;
+            padding: 2rem 0;
+        }
+
+        .login-wrap { width: 100%; max-width: 420px; padding: 0 1rem; }
+
+        .login-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-md);
+            padding: 2.5rem 2rem 2rem;
+        }
+
+        .login-logo {
+            display: flex; align-items: center; justify-content: center;
+            gap: .45rem; font-size: 1.15rem; font-weight: 700;
+            color: var(--t1); margin-bottom: .4rem;
+        }
+        .login-logo svg { color: var(--brand); }
+
+        .login-sub { text-align: center; color: var(--tm); font-size: .875rem; margin-bottom: 1.75rem; }
+
+        .login-label {
+            display: block; font-size: .75rem; font-weight: 600; color: var(--tm);
+            text-transform: uppercase; letter-spacing: .05em; margin-bottom: .35rem;
+        }
+
+        .login-input {
+            display: block; width: 100%; padding: .6rem .85rem; font-size: .95rem;
+            background: var(--surface-2); color: var(--t1); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); outline: none;
+            transition: border-color var(--transition), box-shadow var(--transition);
+            box-sizing: border-box;
+        }
+        .login-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-subtle); }
+
+        .login-btn {
+            display: block; width: 100%; padding: .7rem; margin-top: 1.5rem;
+            background: var(--brand); color: #fff; border: none;
+            border-radius: var(--radius-sm); font-size: .95rem; font-weight: 600;
+            cursor: pointer; transition: opacity var(--transition);
+        }
+        .login-btn:hover:not(:disabled) { opacity: .88; }
+        .login-btn:disabled { opacity: .55; cursor: default; }
+
+        .login-error { color: var(--red); font-size: .85rem; text-align: center; margin-top: .85rem; }
+        .login-footer { text-align: center; margin-top: 1.25rem; font-size: .85rem; color: var(--tm); }
+        .login-footer a { color: var(--brand); text-decoration: none; }
+        .login-footer a:hover { text-decoration: underline; }
+        .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    </style>
+</head>
+<body>
+    <div class="login-wrap">
+        <div class="login-card">
+            <div class="login-logo">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.75" />
+                    <path d="M10 5v1.5M10 13.5V15M7.5 7.5C7.5 6.67 8.17 6 9 6h2.5C12.33 6 13 6.67 13 7.5S12.33 9 11.5 9h-3C7.67 9 7 9.67 7 10.5S7.67 12 8.5 12H11c.83 0 1.5.67 1.5 1.5S11.83 15 11 15H8.5"
+                          stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+                </svg>
+                Budget
+            </div>
+            <p class="login-sub">Request access to this instance</p>
+
+            <form method="post" asp-action="Register" asp-controller="Account" id="regForm">
+                @Html.AntiForgeryToken()
+
+                <div style="margin-bottom:1rem">
+                    <label class="login-label" for="username">Username</label>
+                    <input class="login-input" id="username" name="username" type="text"
+                           autocomplete="username" spellcheck="false" autofocus />
+                </div>
+
+                <div class="field-row" style="margin-bottom:1rem">
+                    <div>
+                        <label class="login-label" for="firstName">First name</label>
+                        <input class="login-input" id="firstName" name="firstName" type="text" autocomplete="given-name" />
+                    </div>
+                    <div>
+                        <label class="login-label" for="lastName">Last name</label>
+                        <input class="login-input" id="lastName" name="lastName" type="text" autocomplete="family-name" />
+                    </div>
+                </div>
+
+                <div style="margin-bottom:1rem">
+                    <label class="login-label" for="email">Email</label>
+                    <input class="login-input" id="email" name="email" type="email" autocomplete="email" />
+                </div>
+
+                <div style="margin-bottom:1rem">
+                    <label class="login-label" for="password">Password</label>
+                    <input class="login-input" id="password" name="password" type="password"
+                           autocomplete="new-password" />
+                </div>
+
+                <div>
+                    <label class="login-label" for="confirmPassword">Confirm password</label>
+                    <input class="login-input" id="confirmPassword" name="confirmPassword" type="password"
+                           autocomplete="new-password" />
+                </div>
+
+                <button class="login-btn" type="submit" id="submitBtn">Request access</button>
+
+                @if (!string.IsNullOrEmpty(error))
+                {
+                    <p class="login-error">@error</p>
+                }
+            </form>
+
+            <p class="login-footer">
+                Already have an account? <a asp-action="Login" asp-controller="Account">Sign in</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('regForm').addEventListener('submit', function () {
+            var btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Submitting…';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+@model BudgetApp.ViewModels.ImportVm
+@{
+    ViewData["Title"] = "Import";
+    ViewData["MonthYm"] = Model.MonthYm;
+    var month = BudgetApp.ViewModels.MonthHelper.ParseMonth(Model.MonthYm);
+    var monthLabel = month.ToString("MMMM yyyy");
+    var folder = BudgetApp.Services.MonthInboxFolderFactory.MonthFolderName(month);
+}
+
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">Import Statements</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">Upload PDF bank/credit card statements for @monthLabel</p>
+    </div>
+    <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@Model.MonthYm"
+       class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+@if (Model.ResultMessage is not null)
+{
+    var alertClass = Model.ResultSuccess == true ? "alert-success" : Model.ResultSuccess == false ? "alert-danger" : "alert-info";
+    <div class="alert @alertClass alert-dismissible fade show mb-4" role="alert">
+        @Model.ResultMessage
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="row g-4">
+    @* Step 1: Upload *@
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="section-title">Step 1 — Upload PDF</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                Drop your bank or credit card statement PDFs here. They'll be saved to the inbox for the selected month.
+                Statements can span e.g. Mar 15 – Apr 15; only transactions within the calendar month will be counted.
+            </p>
+            <form method="post" asp-action="Upload" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <input type="hidden" name="targetFolder" value="@folder" />
+                <div class="mb-3">
+                    <label class="form-label">Select PDFs</label>
+                    <input type="file" name="files" multiple accept=".pdf" class="form-control" required />
+                </div>
+                <button type="submit" class="btn btn-outline-primary w-100">
+                    Upload to @monthLabel inbox
+                </button>
+            </form>
+        </div>
+    </div>
+
+    @* Step 2: Process *@
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="section-title">Step 2 — Process</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                After uploading, click below to extract and categorize transactions.
+                Only transactions dated within <strong>@monthLabel</strong> will be added to that month's budget.
+            </p>
+            @{
+                var monthFolder = Model.Inbox.Folders.FirstOrDefault(f => f.RelativeFolder.Contains(folder, StringComparison.OrdinalIgnoreCase));
+                var folderCount = monthFolder?.PdfCount ?? 0;
+            }
+            <p class="mb-3" style="font-size:.875rem">
+                <strong>@monthLabel inbox:</strong>
+                <span class="@(folderCount > 0 ? "text-success fw-semibold" : "text-muted")">@folderCount PDF(s) waiting</span>
+            </p>
+            <form method="post" asp-action="Run" class="mb-2">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <button type="submit" class="btn btn-primary w-100">Process @monthLabel</button>
+            </form>
+            <form method="post" asp-action="RunAll">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-outline-secondary w-100 btn-sm">
+                    Process entire inbox (all months)
+                </button>
+            </form>
+        </div>
+    </div>
+
+    @* Inbox overview *@
+    <div class="col-12">
+        <div class="card">
+            <div class="section-title">Inbox Overview</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-2">
+                Inbox: <code>@Model.Inbox.AbsoluteInboxPath</code> —
+                <strong>@Model.Inbox.TotalPdfCount PDF(s)</strong> total
+            </p>
+            @if (Model.Inbox.Folders.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table budget-table table-sm mb-0">
+                        <thead><tr><th>Folder</th><th class="text-end">PDFs</th></tr></thead>
+                        <tbody>
+                            @foreach (var f in Model.Inbox.Folders)
+                            {
+                                <tr>
+                                    <td><code style="font-size:.8rem">@f.RelativeFolder</code></td>
+                                    <td class="text-end">@f.PdfCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <p style="font-size:.875rem;color:var(--tm)">Inbox is empty. Upload PDFs above.</p>
+            }
+        </div>
+    </div>
+</div>

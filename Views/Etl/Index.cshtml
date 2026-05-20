@@ -1,0 +1,278 @@
+@using BudgetApp.Services
+@using BudgetApp.ViewModels
+@{
+    ViewData["Title"] = "Import statements";
+    var ym = (string)(ViewBag.MonthYm ?? "");
+    var defaultScope = (string)(ViewBag.DefaultEtlScope ?? "all");
+    var overview = ViewBag.InboxOverview as InboxOverviewViewModel;
+    overview ??= new InboxOverviewViewModel();
+    var monthFolder = MonthInboxFolderFactory.MonthFolderName(MonthHelper.ParseMonth(ym));
+}
+
+@if (TempData["EtlSummary"] is string msg && !string.IsNullOrWhiteSpace(msg))
+{
+    <div class="alert alert-info" role="alert">@msg</div>
+}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <a class="btn btn-sm btn-primary" asp-controller="BudgetPlan" asp-action="Index" asp-route-ym="@ym">← Monthly plan (@ym)</a>
+    <form method="get" asp-action="Index" class="d-flex flex-wrap align-items-center gap-2">
+        <label class="small text-muted mb-0">Month context</label>
+        <input class="form-control form-control-sm" type="month" name="ym" value="@ym" style="width:10rem;" />
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Apply</button>
+    </form>
+</div>
+
+<div class="mb-4">
+    <h1 class="h3">Import PDF statements</h1>
+    <p class="text-muted mb-0">
+        Put PDFs in the inbox path below. With recursive scan, every subfolder is included (for example
+        <code>january_2026/your.pdf</code> or any folder you create yourself).
+    </p>
+</div>
+
+<div class="alert alert-secondary py-2 px-3 small mb-4">
+    <strong>Inbox on disk</strong><br />
+    <code class="user-select-all">@overview.AbsoluteInboxPath</code><br />
+    <span class="text-muted">Configure with <code>Budget:StatementInboxPath</code> or environment <code>Budget__StatementInboxPath</code> (Docker-friendly).</span>
+</div>
+
+<div id="upload" class="card shadow-sm mb-4">
+    <div class="card-header">Upload PDFs into the inbox</div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">Choose a folder (or type a custom one). Create or remove folders in <a href="#folders">Your folders</a> below, then pick that folder here. If a PDF with the <strong>same file name</strong> is already in that folder, upload is <strong>skipped</strong> (delete or rename the existing file first). Only <code>.pdf</code> files are accepted.</p>
+        <form asp-action="Upload" method="post" enctype="multipart/form-data" class="row g-3">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnYm" value="@ym" />
+            <div class="col-12">
+                <label class="form-label" for="uploadFiles">PDF files</label>
+                <input class="form-control" id="uploadFiles" name="files" type="file" accept="application/pdf,.pdf" multiple required />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="targetFolder">Target folder (optional)</label>
+                <select class="form-select" id="targetFolder" name="targetFolder">
+                    <option value="">(inbox root)</option>
+                    @foreach (var d in overview.TopLevelSubfolders)
+                    {
+                        <option value="@d">@d</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="targetFolderCustom">Or custom subfolder</label>
+                <input class="form-control" id="targetFolderCustom" name="targetFolderCustom" type="text" placeholder="e.g. january_2026 or my_bank_stuff" autocomplete="off" />
+                <div class="form-text">If filled, this overrides the dropdown. Use <code>/</code> for nested paths (max depth @BudgetApp.Services.InboxPathGuard.MaxFolderDepth).</div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-success">Upload</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="folders" class="card shadow-sm mb-4">
+    <div class="card-header">Your folders (create / delete)</div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">Paths are relative to the inbox. You cannot delete the inbox root. Nested paths use <code>/</code> (same rules as upload).</p>
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <h3 class="h6">Create folder</h3>
+                <form asp-action="CreateFolder" method="post" class="row g-2">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="returnYm" value="@ym" />
+                    <div class="col-12">
+                        <label class="form-label" for="newFolderRelative">New folder path</label>
+                        <input class="form-control" id="newFolderRelative" name="newFolderRelative" type="text" placeholder="e.g. chase_card or 2026/custom" autocomplete="off" required />
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-primary">Create folder</button>
+                    </div>
+                </form>
+            </div>
+            <div class="col-lg-6">
+                <h3 class="h6">Delete folder</h3>
+                <form asp-action="DeleteFolder" method="post" class="row g-2"
+                      onsubmit="const c=this.querySelector('[name=deleteContents]'); if (c.checked) { return confirm('Delete this folder and EVERY file and subfolder inside? This cannot be undone.'); } return confirm('Delete this folder? It must be empty unless you checked delete-all.');">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="returnYm" value="@ym" />
+                    <div class="col-12">
+                        <label class="form-label" for="folderRelative">Pick folder</label>
+                        <select class="form-select" id="folderRelative" name="folderRelative">
+                            <option value="">(choose or use custom path)</option>
+                            @foreach (var d in overview.TopLevelSubfolders)
+                            {
+                                <option value="@d">@d</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="folderRelativeCustom">Or custom path to delete</label>
+                        <input class="form-control" id="folderRelativeCustom" name="folderRelativeCustom" type="text" placeholder="Overrides dropdown when filled" autocomplete="off" />
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="deleteContents" name="deleteContents" value="true" />
+                            <label class="form-check-label" for="deleteContents">Delete including all files and subfolders</label>
+                        </div>
+                        <div class="form-text">If unchecked, the folder must be completely empty.</div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-danger">Delete folder</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (overview.TopLevelSubfolders.Count > 0)
+{
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">Top-level folders inside inbox</div>
+        <div class="card-body small">
+            <p class="text-muted mb-2">Use these for organizing by month, or create any other folder name — ETL will still find PDFs when recursive scan is on.</p>
+            <ul class="mb-0 columns-2" style="column-count: 2; column-gap: 2rem;">
+                @foreach (var d in overview.TopLevelSubfolders)
+                {
+                    <li style="break-inside: avoid;"><code>@d</code></li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header">Folders &amp; PDF counts</div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 18rem;">
+                    <table class="table table-sm mb-0">
+                        <thead><tr><th>Folder (relative)</th><th class="text-end">PDFs</th></tr></thead>
+                        <tbody>
+                        @foreach (var row in overview.Folders)
+                        {
+                            <tr>
+                                <td class="small">@row.RelativeFolder</td>
+                                <td class="text-end small">@row.PdfCount</td>
+                            </tr>
+                        }
+                        @if (overview.Folders.Count == 0)
+                        {
+                            <tr><td colspan="2" class="text-muted small px-3 py-2">No PDFs found yet. Recursive: @(overview.ScanRecursively ? "on" : "off").</td></tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="small text-muted mb-0 px-3 py-2 border-top">Total PDFs: <strong>@overview.TotalPdfCount</strong></p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header">Sample paths</div>
+            <div class="card-body p-0">
+                <ul class="small mb-0 px-3 py-2" style="max-height: 18rem; overflow: auto;">
+                    @if (overview.SampleRelativePdfPaths.Count == 0)
+                    {
+                        <li class="text-muted">No PDFs yet.</li>
+                    }
+                    else
+                    {
+                        foreach (var p in overview.SampleRelativePdfPaths)
+                        {
+                            <li><code>@p</code></li>
+                        }
+                    }
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header">Create month folders (English names)</div>
+    <div class="card-body">
+        <p class="small text-muted">Creates <code>january_yyyy</code> through <code>december_yyyy</code> for each year in the range. Existing folders are left as-is. Add your own folders anytime; they are picked up when recursive scan is enabled.</p>
+        <form asp-action="EnsureMonthFolders" method="post" class="row g-3 align-items-end">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnYm" value="@ym" />
+            <div class="col-md-3">
+                <label class="form-label" for="startYear">Start year</label>
+                <input class="form-control" id="startYear" name="startYear" type="number" value="2028" min="2000" max="2100" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="endYear">End year</label>
+                <input class="form-control" id="endYear" name="endYear" type="number" value="2028" min="2000" max="2100" />
+            </div>
+            <div class="col-md-6">
+                <button type="submit" class="btn btn-outline-primary">Create / verify folders</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<form asp-action="Run" method="post" class="card app-card border-0 shadow-sm">
+    <div class="card-body">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="returnYm" value="@ym" />
+        <h2 class="h5 mb-3">Run import (ETL)</h2>
+        <fieldset class="mb-3">
+            <legend class="form-label mb-2">Scope</legend>
+            <div class="d-flex flex-column gap-2">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="etlScope" id="etlAll" value="all"@Html.Raw(defaultScope != "month" ? " checked" : "") />
+                    <label class="form-check-label" for="etlAll">Entire inbox (respects recursive setting)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="etlScope" id="etlMonth" value="month"@Html.Raw(defaultScope == "month" ? " checked" : "") />
+                    <label class="form-check-label" for="etlMonth">Month folder for <strong>@ym</strong> → <code>@monthFolder</code> (always recursive inside that folder)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="etlScope" id="etlFolder" value="folder" />
+                    <label class="form-check-label" for="etlFolder">Specific folder</label>
+                </div>
+            </div>
+        </fieldset>
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label" for="scopeFolder">Folder (dropdown)</label>
+                <select class="form-select" id="scopeFolder" name="scopeFolder">
+                    <option value="">(pick if using specific folder)</option>
+                    @foreach (var d in overview.TopLevelSubfolders)
+                    {
+                        <option value="@d">@d</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="scopeFolderCustom">Or custom path</label>
+                <input class="form-control" id="scopeFolderCustom" name="scopeFolderCustom" type="text" placeholder="Overrides dropdown" autocomplete="off" />
+            </div>
+        </div>
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label" for="year">Statement year (lines without year in PDF)</label>
+                <input class="form-control" type="number" id="year" name="year" value="@DateTime.UtcNow.Year" min="2000" max="2100" />
+            </div>
+            <div class="col-md-8 d-flex flex-wrap gap-2 align-items-center">
+                <button type="submit" class="btn btn-primary px-4">Run import</button>
+                <a class="btn btn-outline-secondary" asp-controller="BudgetPlan" asp-action="Index" asp-route-ym="@ym">Monthly plan</a>
+                <a class="btn btn-outline-secondary" asp-controller="Reports" asp-action="Index">Report library</a>
+            </div>
+        </div>
+        <p class="small text-muted mt-3 mb-0">Chase/BofA: put <code>chase</code>, <code>bofa</code>, <code>boa</code>, or <code>bankofamerica</code> in the <strong>filename</strong>. Scoped runs only read PDFs under the chosen folder.</p>
+    </div>
+</form>
+
+<div class="card border-danger mb-4">
+    <div class="card-header">Re-import this month (advanced)</div>
+    <div class="card-body small">
+        <p class="mb-2">Deletes <strong>only</strong> rows imported from PDFs whose <strong>posted date</strong> is in <strong>@ym</strong>. PDF files on disk stay put. Use this if you need a clean re-parse (otherwise ETL skips duplicates). Manual expenses are not removed.</p>
+        <form asp-action="PurgeImportedForMonth" method="post" onsubmit="return confirm('Delete all PDF-imported transactions for @ym from the database?');">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="ym" value="@ym" />
+            <button type="submit" class="btn btn-sm btn-outline-danger">Clear PDF imports for @ym</button>
+        </form>
+    </div>
+</div>

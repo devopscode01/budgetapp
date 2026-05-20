@@ -1,0 +1,24 @@
+@{
+    ViewData["Title"] = "Access Pending";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+<div class="container py-5" style="max-width:480px">
+    <div class="card shadow-sm">
+        <div class="card-body p-4 text-center">
+            <h2 class="mb-3">Access Pending</h2>
+            <p class="text-muted mb-4">
+                Your account is waiting for admin approval. Once approved you can sign in and start using Budget.
+            </p>
+            <p class="text-muted small">
+                Signed in as <strong>@User.FindFirst("preferred_username")?.Value</strong>.
+                Ask the admin to approve your account, then
+                <a href="/Account/Login">sign in again</a>.
+            </p>
+            <form method="post" asp-controller="Account" asp-action="Logout">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="btn btn-outline-secondary mt-2">Sign out</button>
+            </form>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,116 @@
+html {
+  font-size: 14px;
+}
+
+@media (min-width: 768px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+:root {
+  --app-surface: #f4f6fb;
+  --app-nav-from: #1a2d4a;
+  --app-nav-to: #243b5a;
+  --app-card-radius: 14px;
+  --app-transition: 0.2s ease;
+}
+
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
+  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem rgba(91, 141, 239, 0.45);
+}
+
+html {
+  position: relative;
+  min-height: 100%;
+}
+
+body.app-body {
+  margin-bottom: 60px;
+  background: var(--app-surface);
+}
+
+.app-nav {
+  background: linear-gradient(110deg, var(--app-nav-from), var(--app-nav-to));
+}
+
+.app-nav .nav-link {
+  color: rgba(255, 255, 255, 0.88) !important;
+  border-radius: 8px;
+  margin: 0 0.1rem;
+  transition: background var(--app-transition), color var(--app-transition);
+}
+
+.app-nav .nav-link:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff !important;
+}
+
+.app-nav .navbar-brand {
+  color: #fff !important;
+  letter-spacing: -0.02em;
+}
+
+.app-content {
+  animation: appContentIn 0.35s ease;
+}
+
+@keyframes appContentIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.app-card {
+  border-radius: var(--app-card-radius);
+  transition: box-shadow var(--app-transition), transform var(--app-transition);
+}
+
+.app-card:hover {
+  box-shadow: 0 0.5rem 1.25rem rgba(26, 45, 74, 0.1) !important;
+}
+
+.app-stepper .app-step {
+  background: #fff;
+  border-radius: var(--app-card-radius);
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(26, 45, 74, 0.06);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.app-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5b8def, #7c5cf0);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.app-scroll-list {
+  max-height: 9rem;
+  overflow: auto;
+  padding-left: 1.1rem;
+}
+
+.app-fade-in {
+  animation: appFadeIn 0.4s ease;
+}
+
+@keyframes appFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
+  color: var(--bs-secondary-color);
+  text-align: end;
+}
+
+.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
+  text-align: start;
+}

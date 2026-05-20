@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/out/
+**/.vs/
+**/.idea/
+**/*.user
+**/*.suo
+.git
+.gitignore
+keycloak/
+docker-compose.yml
+.env

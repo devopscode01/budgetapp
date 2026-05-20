@@ -1,0 +1,13 @@
+# Local dev: listens on :80 only.
+# For production, replace ":80" with your domain, e.g.:
+#   budget.homeland-one.org
+# Caddy will automatically obtain a Let's Encrypt cert.
+# If using Cloudflare proxy (orange cloud), keep ":80" and let Cloudflare handle HTTPS.
+
+:80 {
+    reverse_proxy budget:8080 {
+        # Forward real client IP and protocol to ASP.NET Core
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

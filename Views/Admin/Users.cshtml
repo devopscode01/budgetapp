@@ -1,0 +1,88 @@
+@model List<BudgetApp.Models.BudgetUser>
+@{
+    ViewData["Title"] = "User Management";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    var myId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+}
+
+<div class="container py-4">
+    <h2 class="mb-4">User Management</h2>
+
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Admin</th>
+                <th>Joined</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in Model)
+            {
+                <tr>
+                    <td>
+                        @user.DisplayName
+                        @if (user.Id == myId) { <span class="badge bg-secondary">you</span> }
+                    </td>
+                    <td class="text-muted small">@user.Email</td>
+                    <td>
+                        @if (user.IsApproved)
+                        {
+                            <span class="badge bg-success">Approved</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">Pending</span>
+                        }
+                    </td>
+                    <td>
+                        @if (user.IsAdmin)
+                        {
+                            <span class="badge bg-primary">Admin</span>
+                        }
+                    </td>
+                    <td class="text-muted small">@user.CreatedUtc.ToString("MMM d, yyyy")</td>
+                    <td>
+                        @if (user.Id != myId)
+                        {
+                            <div class="d-flex gap-2">
+                                @if (!user.IsApproved)
+                                {
+                                    <form method="post" asp-controller="Admin" asp-action="Approve">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@user.Id" />
+                                        <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <form method="post" asp-controller="Admin" asp-action="Revoke">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@user.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-warning">Revoke</button>
+                                    </form>
+                                }
+                                <form method="post" asp-controller="Admin" asp-action="ToggleAdmin">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@user.Id" />
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                        @(user.IsAdmin ? "Remove admin" : "Make admin")
+                                    </button>
+                                </form>
+                            </div>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="alert alert-info mt-3">
+        <strong>Adding new users:</strong> Create accounts in <a href="http://localhost:8180" target="_blank">Keycloak admin</a>
+        (realm <code>budget</code>). New users appear here after their first login attempt.
+        Approve them to grant access.
+    </div>
+</div>

@@ -1,0 +1,359 @@
+@model BudgetApp.ViewModels.DashboardVm
+@using BudgetApp.Models
+@{
+    ViewData["Title"] = "Dashboard";
+    ViewData["MonthYm"] = Model.MonthYm;
+
+    string CatColor(ExpenseCategory c) => c switch {
+        ExpenseCategory.Mortgage      => "#5B6EF7",
+        ExpenseCategory.Utilities     => "#14B8A6",
+        ExpenseCategory.Water         => "#06B6D4",
+        ExpenseCategory.Groceries     => "#10B981",
+        ExpenseCategory.Dining        => "#F97316",
+        ExpenseCategory.Insurance     => "#F59E0B",
+        ExpenseCategory.Transport     => "#8B5CF6",
+        ExpenseCategory.Subscriptions => "#6366F1",
+        ExpenseCategory.Healthcare    => "#EF4444",
+        ExpenseCategory.Savings       => "#059669",
+        ExpenseCategory.Other         => "#64748B",
+        _                             => "#94A3B8"
+    };
+    string CatLabel(ExpenseCategory c) => c == ExpenseCategory.Uncategorized ? "Other" : c.ToString();
+
+    var income  = Model.Current.TotalIncome;
+    var spent   = Model.Current.TotalSpend;
+    var net     = Model.Current.NetBalance;
+    var spendPct = income > 0 ? (double)(spent / income * 100) : 0;
+    var heroState = income == 0 ? "state-nodata" : spendPct < 70 ? "state-good" : spendPct < 90 ? "state-watch" : "state-danger";
+
+    var spendCats = Model.Current.CategoryTotals
+        .Where(c => c.Category != ExpenseCategory.Income)
+        .OrderByDescending(c => c.Amount)
+        .ToList();
+
+    var subs = Model.Current.Transactions
+        .Where(t => t.Category == ExpenseCategory.Subscriptions)
+        .Concat(Model.Current.ManualExpenses
+            .Where(m => m.Category == ExpenseCategory.Subscriptions)
+            .Select(m => new ParsedTransaction { Description = m.Description, Amount = m.Amount }))
+        .GroupBy(t => t.Description, StringComparer.OrdinalIgnoreCase)
+        .Select(g => new { Name = g.Key, Total = g.Sum(t => t.Amount) })
+        .OrderByDescending(x => x.Total)
+        .ToList();
+}
+
+@* ── Page header ─────────────────────────────── *@
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">@Model.MonthLabel</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">Monthly budget summary</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        @if (income == 0)
+        {
+            <form method="post" asp-controller="Demo" asp-action="Seed">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <button type="submit" class="btn btn-sm btn-primary">Load Demo Account</button>
+            </form>
+        }
+        <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
+           class="btn btn-sm btn-outline-secondary">View Transactions →</a>
+    </div>
+</div>
+
+@* ── Demo banner (no data) ───────────────────── *@
+@if (income == 0 && !Model.Current.Transactions.Any() && !Model.Current.ManualExpenses.Any())
+{
+    <div class="demo-banner mb-4">
+        <div class="demo-icon">💡</div>
+        <div class="demo-body">
+            <div class="demo-title">No data for @Model.MonthLabel</div>
+            <div class="demo-desc">Load a demo account to see how the dashboard works with real numbers — or <a asp-controller="Manual" asp-action="Index" asp-route-ym="@Model.MonthYm">add income manually</a> and <a asp-controller="Import" asp-action="Index" asp-route-ym="@Model.MonthYm">import a PDF statement</a>.</div>
+        </div>
+        <form method="post" asp-controller="Demo" asp-action="Seed" class="flex-shrink-0">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="ym" value="@Model.MonthYm" />
+            <button type="submit" class="btn btn-primary">Try Demo →</button>
+        </form>
+    </div>
+}
+
+@* ── Hero + metric row ───────────────────────── *@
+<div class="row g-3 mb-3">
+    @* Safe to Spend Hero *@
+    <div class="col-12 col-md-5 col-lg-4">
+        <div class="hero-card @heroState h-100">
+            <div class="hero-label">Safe to Spend</div>
+            <div class="hero-amount">
+                @if (income == 0)
+                {
+                    <span style="opacity:.6">—</span>
+                }
+                else
+                {
+                    @(net >= 0 ? net.ToString("C0") : "-" + (-net).ToString("C0"))
+                }
+            </div>
+            <div class="hero-meta">
+                <span>
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1.5v5l3 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.4"/></svg>
+                    @Model.MonthLabel
+                </span>
+                @if (income > 0)
+                {
+                    <span>@spendPct.ToString("F0")% spent</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Metrics *@
+    <div class="col-12 col-md-7 col-lg-8">
+        <div class="row g-3 h-100">
+            <div class="col-6 col-xl-3">
+                <div class="metric-card h-100">
+                    <div class="m-label">Income</div>
+                    <div class="m-value text-success text-money">@income.ToString("C0")</div>
+                    <div class="m-sub">This month</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="metric-card h-100">
+                    <div class="m-label">Spent</div>
+                    <div class="m-value text-money">@spent.ToString("C0")</div>
+                    <div class="m-sub">@(spendCats.Count) categories</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="metric-card h-100">
+                    <div class="m-label">Net Balance</div>
+                    <div class="m-value text-money @(net >= 0 ? "text-success" : "text-danger")">
+                        @(net >= 0 ? "+" : "")@net.ToString("C0")
+                    </div>
+                    <div class="m-sub">@(net >= 0 ? "Under budget" : "Over budget")</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="metric-card h-100">
+                    <div class="m-label">Transactions</div>
+                    <div class="m-value">@(Model.Current.Transactions.Count + Model.Current.ManualExpenses.Count)</div>
+                    <div class="m-sub">@Model.Current.Transactions.Count imported</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* ── YNAB zero-based allocation bar ──────────── *@
+@if (income > 0 && spendCats.Any())
+{
+    <div class="card mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="section-title mb-0">Every Dollar Assigned (YNAB)</div>
+            <span class="text-money" style="font-size:.8rem;color:var(--tm)">
+                @spent.ToString("C0") of @income.ToString("C0") — @(net >= 0 ? net.ToString("C0") + " remaining" : (-net).ToString("C0") + " over")
+            </span>
+        </div>
+        <div class="alloc-bar mb-2">
+            @foreach (var cat in spendCats)
+            {
+                var segW = income > 0 ? (double)(cat.Amount / income * 100) : 0;
+                <div class="alloc-seg" style="width:@segW.ToString("F2")%;background:@CatColor(cat.Category)" title="@CatLabel(cat.Category): @cat.Amount.ToString("C0")"></div>
+            }
+        </div>
+        <div class="d-flex gap-3 flex-wrap" style="font-size:.75rem">
+            @foreach (var cat in spendCats.Take(6))
+            {
+                <span style="display:flex;align-items:center;gap:.3rem;color:var(--tm)">
+                    <span style="width:8px;height:8px;border-radius:50%;background:@CatColor(cat.Category);flex-shrink:0"></span>
+                    @CatLabel(cat.Category)
+                </span>
+            }
+            @if (spendCats.Count > 6)
+            {
+                <span style="color:var(--tf)">+@(spendCats.Count - 6) more</span>
+            }
+        </div>
+    </div>
+}
+
+@* ── Category breakdown + Chart ──────────────── *@
+<div class="row g-3 mb-3">
+    <div class="col-md-7">
+        <div class="card h-100">
+            <div class="section-title">Spending by Category</div>
+            @if (!spendCats.Any())
+            {
+                <p class="text-muted" style="font-size:.875rem">
+                    No spending data yet.
+                    <a asp-controller="Import" asp-action="Index">Import a statement</a> or
+                    <a asp-controller="Manual" asp-action="Index" asp-route-ym="@Model.MonthYm">add entries manually</a>.
+                </p>
+            }
+            else
+            {
+                @foreach (var cat in spendCats)
+                {
+                    var pct = spent > 0 ? (double)(cat.Amount / spent * 100) : 0;
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="cat-badge" style="background:@(CatColor(cat.Category))22;color:@CatColor(cat.Category)">
+                                @CatLabel(cat.Category)
+                            </span>
+                            <div class="d-flex align-items-center gap-2">
+                                <span style="font-size:.75rem;color:var(--tf)">@pct.ToString("F0")%</span>
+                                <span class="fw-semibold text-money" style="font-size:.9rem">@cat.Amount.ToString("C0")</span>
+                            </div>
+                        </div>
+                        <div class="prog-track">
+                            <div class="prog-fill" style="width:@pct.ToString("F1")%;background:@CatColor(cat.Category)"></div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    @* Donut chart *@
+    <div class="col-md-5">
+        <div class="card h-100">
+            <div class="section-title">Distribution</div>
+            @if (!spendCats.Any())
+            {
+                <div class="d-flex align-items-center justify-content-center h-75" style="min-height:160px">
+                    <p class="text-muted mb-0" style="font-size:.875rem">No data</p>
+                </div>
+            }
+            else
+            {
+                <div class="chart-wrap">
+                    <canvas id="donutChart"></canvas>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* ── Subscriptions (Rocket Money style) ──────── *@
+@if (subs.Any())
+{
+    <div class="card mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="section-title mb-0">Subscriptions</div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-money" style="font-size:.8rem;color:var(--tm)">@subs.Sum(s => s.Total).ToString("C2") / mo</span>
+                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
+                   style="font-size:.75rem;color:var(--brand)">Manage →</a>
+            </div>
+        </div>
+        <div class="sub-grid">
+            @foreach (var sub in subs)
+            {
+                var initials = sub.Name.Length >= 2
+                    ? sub.Name.Substring(0, 2).ToUpper()
+                    : sub.Name.ToUpper();
+                <div class="sub-card">
+                    <div class="sub-icon">@initials</div>
+                    <div style="min-width:0">
+                        <div class="sub-name text-truncate">@sub.Name</div>
+                        <div class="sub-freq">Monthly</div>
+                    </div>
+                    <div class="sub-amt">@sub.Total.ToString("C2")</div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ── Recent months ────────────────────────────── *@
+<div class="card">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="section-title mb-0">Recent Months</div>
+        <a asp-controller="Import" asp-action="Index" asp-route-ym="@Model.MonthYm"
+           class="btn btn-sm btn-primary">+ Import Statement</a>
+    </div>
+    @{
+        var allMonths = new[] { Model.Current }.Concat(Model.Recent).ToList();
+        var maxSpend = allMonths.Max(m => m.TotalSpend);
+    }
+    @foreach (var m in allMonths)
+    {
+        var barPct = maxSpend > 0 ? (double)(m.TotalSpend / maxSpend * 100) : 0;
+        var isCurrent = m.MonthYm == Model.MonthYm;
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@m.MonthYm"
+                   class="text-decoration-none" style="font-size:.875rem;font-weight:@(isCurrent ? "600" : "500");color:@(isCurrent ? "var(--t1)" : "var(--tm)")">
+                    @m.MonthLabel @(isCurrent ? "← current" : "")
+                </a>
+                <span class="text-money" style="font-size:.875rem;font-weight:600;color:@(isCurrent ? "var(--t1)" : "var(--tm)")">
+                    @m.TotalSpend.ToString("C0")
+                </span>
+            </div>
+            <div class="prog-track">
+                <div class="prog-fill @(isCurrent ? "" : "past")" style="width:@barPct.ToString("F1")%;background:@(isCurrent ? "var(--brand)" : "var(--tf)")"></div>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+@if (spendCats.Any())
+{
+    var chartLabels = System.Text.Json.JsonSerializer.Serialize(spendCats.Select(c => CatLabel(c.Category)));
+    var chartData   = System.Text.Json.JsonSerializer.Serialize(spendCats.Select(c => c.Amount));
+    var chartColors = System.Text.Json.JsonSerializer.Serialize(spendCats.Select(c => CatColor(c.Category)));
+    <script>
+    (function(){
+        var labels = @Html.Raw(chartLabels);
+        var data   = @Html.Raw(chartData);
+        var colors = @Html.Raw(chartColors);
+        var theme  = document.documentElement.getAttribute('data-bs-theme') || 'light';
+        var isDark = theme === 'dark';
+
+        var getTextColor = function(d) { return d ? '#94A3B8' : '#6B7280'; };
+
+        var ctx = document.getElementById('donutChart');
+        if (!ctx) return;
+
+        var chart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: colors,
+                    borderWidth: 2,
+                    borderColor: isDark ? '#161928' : '#ffffff',
+                    hoverBorderColor: isDark ? '#161928' : '#ffffff'
+                }]
+            },
+            options: {
+                cutout: '68%',
+                animation: { animateScale: true, duration: 600 },
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                var val = ctx.parsed;
+                                return ' $' + val.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        window.updateChartTheme = function(newTheme) {
+            var dark = newTheme === 'dark';
+            chart.data.datasets[0].borderColor = dark ? '#161928' : '#ffffff';
+            chart.update('none');
+        };
+    })();
+    </script>
+}
+}

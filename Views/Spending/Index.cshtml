@@ -1,0 +1,279 @@
+@model BudgetApp.ViewModels.MonthSpendingVm
+@using BudgetApp.Models
+@{
+    ViewData["Title"] = "Spending";
+    ViewData["MonthYm"] = Model.MonthYm;
+    var categories = Enum.GetValues<ExpenseCategory>();
+
+    string CatColor(ExpenseCategory c) => c switch {
+        ExpenseCategory.Mortgage      => "#5B6EF7",
+        ExpenseCategory.Utilities     => "#14B8A6",
+        ExpenseCategory.Water         => "#06B6D4",
+        ExpenseCategory.Groceries     => "#10B981",
+        ExpenseCategory.Dining        => "#F97316",
+        ExpenseCategory.Insurance     => "#F59E0B",
+        ExpenseCategory.Transport     => "#8B5CF6",
+        ExpenseCategory.Subscriptions => "#6366F1",
+        ExpenseCategory.Healthcare    => "#EF4444",
+        ExpenseCategory.Savings       => "#059669",
+        ExpenseCategory.Other         => "#64748B",
+        _                             => "#94A3B8"
+    };
+    string CatLabel(ExpenseCategory c) => c == ExpenseCategory.Uncategorized ? "Other" : c.ToString();
+
+    var spendCats = Model.CategoryTotals
+        .Where(c => c.Category != ExpenseCategory.Income)
+        .OrderByDescending(c => c.Amount)
+        .ToList();
+
+    var subs = Model.Transactions
+        .Where(t => t.Category == ExpenseCategory.Subscriptions)
+        .Concat(Model.ManualExpenses
+            .Where(m => m.Category == ExpenseCategory.Subscriptions)
+            .Select(m => new ParsedTransaction { Description = m.Description, Amount = m.Amount }))
+        .GroupBy(t => t.Description, StringComparer.OrdinalIgnoreCase)
+        .Select(g => new { Name = g.Key, Total = g.Sum(t => t.Amount) })
+        .OrderByDescending(x => x.Total)
+        .ToList();
+}
+
+@* ── Header ─────────────────────────────────── *@
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">@Model.MonthLabel — Spending</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">
+            <span class="text-money fw-semibold" style="color:var(--t1)">@Model.TotalSpend.ToString("C2")</span>
+            total across @spendCats.Count categories
+        </p>
+    </div>
+    <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@Model.MonthYm"
+       class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+@* ── Subscriptions (Rocket Money style) ──────── *@
+@if (subs.Any())
+{
+    <div class="card mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <div class="section-title mb-1">Subscriptions</div>
+                <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">
+                    @subs.Count recurring charges · <strong class="text-money" style="color:var(--t1)">@subs.Sum(s => s.Total).ToString("C2")</strong> / mo
+                    <span style="color:var(--tf)"> · ~@((subs.Sum(s => s.Total) * 12).ToString("C0")) / yr</span>
+                </p>
+            </div>
+        </div>
+        <div class="sub-grid">
+            @foreach (var sub in subs)
+            {
+                var initials = sub.Name.Length >= 2
+                    ? sub.Name.Substring(0, 2).ToUpper()
+                    : sub.Name.ToUpper();
+                <div class="sub-card">
+                    <div class="sub-icon">@initials</div>
+                    <div style="min-width:0;flex:1">
+                        <div class="sub-name text-truncate" title="@sub.Name">@sub.Name</div>
+                        <div class="sub-freq">Monthly</div>
+                    </div>
+                    <div class="sub-amt">@sub.Total.ToString("C2")</div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ── Category breakdown ───────────────────────── *@
+<div class="card mb-4">
+    <div class="section-title">Category Breakdown</div>
+    @if (!spendCats.Any())
+    {
+        <p class="text-muted" style="font-size:.875rem">No data for this month.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table budget-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th class="text-end">Amount</th>
+                        <th class="text-end">Txns</th>
+                        <th style="width:200px">Share</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var cat in spendCats)
+                    {
+                        var pct = Model.TotalSpend > 0 ? (double)(cat.Amount / Model.TotalSpend * 100) : 0;
+                        var isSubscriptions = cat.Category == ExpenseCategory.Subscriptions;
+                        var subItems = isSubscriptions ? subs : null;
+                        <tr>
+                            <td>
+                                <span class="cat-badge" style="background:@(CatColor(cat.Category))22;color:@CatColor(cat.Category)">
+                                    @CatLabel(cat.Category)
+                                </span>
+                            </td>
+                            <td class="text-end text-money fw-semibold">@cat.Amount.ToString("C2")</td>
+                            <td class="text-end" style="color:var(--tf)">@cat.Count</td>
+                            <td>
+                                <div class="prog-track mb-1">
+                                    <div class="prog-fill" style="width:@pct.ToString("F1")%;background:@CatColor(cat.Category)"></div>
+                                </div>
+                                <small style="color:var(--tf);font-size:.7rem">@pct.ToString("F0")%</small>
+                            </td>
+                        </tr>
+                        @if (isSubscriptions && subItems is not null)
+                        {
+                            @foreach (var sub in subItems)
+                            {
+                                <tr style="background:var(--surface-2)">
+                                    <td class="ps-4" style="font-size:.8125rem;color:var(--tm)">&#8627; @sub.Name</td>
+                                    <td class="text-end text-money" style="font-size:.8125rem;color:var(--tm)">@sub.Total.ToString("C2")</td>
+                                    <td></td><td></td>
+                                </tr>
+                            }
+                        }
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th>Total</th>
+                        <th class="text-end text-money">@Model.TotalSpend.ToString("C2")</th>
+                        <th class="text-end">@(Model.Transactions.Count + Model.ManualExpenses.Count)</th>
+                        <th></th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    }
+</div>
+
+@* ── Transactions ─────────────────────────────── *@
+<div class="card mb-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div class="section-title mb-0">Statement Transactions</div>
+        <small style="color:var(--tf)">@Model.Transactions.Count items</small>
+    </div>
+    @if (!Model.Transactions.Any())
+    {
+        <p class="text-muted" style="font-size:.875rem">
+            No statement transactions. <a asp-controller="Import" asp-action="Index">Import a PDF</a>.
+        </p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table budget-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th class="text-end">Amount</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var tx in Model.Transactions)
+                    {
+                        <tr>
+                            <td class="text-nowrap" style="color:var(--tf)">@tx.PostedDate.ToString("MMM d")</td>
+                            <td style="max-width:260px" class="text-truncate">@tx.Description</td>
+                            <td>
+                                <span class="cat-badge" style="background:@(CatColor(tx.Category))22;color:@CatColor(tx.Category)">
+                                    @CatLabel(tx.Category)
+                                </span>
+                            </td>
+                            <td class="text-end text-money">@tx.Amount.ToString("C2")</td>
+                            <td style="width:32px">
+                                <button class="btn btn-link btn-xs text-muted recategorize-btn p-0"
+                                        data-id="@tx.Id"
+                                        data-current="@((int)tx.Category)"
+                                        title="Change category"
+                                        style="font-size:1rem;line-height:1">&#9998;</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@* ── Manual entries ───────────────────────────── *@
+@if (Model.ManualExpenses.Any())
+{
+    <div class="card">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div class="section-title mb-0">Manual Entries</div>
+            <a asp-controller="Manual" asp-action="Index" asp-route-ym="@Model.MonthYm"
+               class="btn btn-sm btn-outline-secondary">Manage</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table budget-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th>Category</th>
+                        <th class="text-end">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in Model.ManualExpenses)
+                    {
+                        <tr>
+                            <td>@m.Description</td>
+                            <td>
+                                <span class="cat-badge" style="background:@(CatColor(m.Category))22;color:@CatColor(m.Category)">
+                                    @CatLabel(m.Category)
+                                </span>
+                            </td>
+                            <td class="text-end text-money">@m.Amount.ToString("C2")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@* ── Recategorize modal ───────────────────────── *@
+<div class="modal fade" id="recatModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">Change Category</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-controller="Spending" asp-action="Recategorize">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <input type="hidden" name="id" id="recatId" />
+                <div class="modal-body">
+                    <select name="category" class="form-select" id="recatSelect">
+                        @foreach (var c in categories)
+                        {
+                            <option value="@((int)c)">@CatLabel(c)</option>
+                        }
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+document.querySelectorAll('.recategorize-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        document.getElementById('recatId').value = btn.dataset.id;
+        document.getElementById('recatSelect').value = btn.dataset.current;
+        new bootstrap.Modal(document.getElementById('recatModal')).show();
+    });
+});
+</script>
+}

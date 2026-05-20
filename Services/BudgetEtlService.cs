@@ -1,0 +1,480 @@
+using System.Globalization;
+using System.Text;
+using BudgetApp.Data;
+using BudgetApp.Models;
+using BudgetApp.Options;
+using BudgetApp.ViewModels;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace BudgetApp.Services;
+
+public sealed record PdfUploadResult(int Saved, int Skipped, IReadOnlyList<string> Messages);
+
+public sealed class BudgetEtlService(
+    IOptions<BudgetOptions> options,
+    BudgetDbContext db,
+    PdfTextExtractor pdf,
+    ExpenseClassifier classifier,
+    IWebHostEnvironment env,
+    ILogger<BudgetEtlService> logger)
+{
+    private static readonly CultureInfo English = CultureInfo.GetCultureInfo("en-US");
+    private readonly BudgetOptions _opt = options.Value;
+
+    public string ResolvePath(string relativeOrAbsolute)
+    {
+        if (Path.IsPathRooted(relativeOrAbsolute)) return relativeOrAbsolute;
+        return Path.Combine(env.ContentRootPath, relativeOrAbsolute);
+    }
+
+    public static string NormalizeRelativePath(string relativePath) =>
+        relativePath.Replace("\\", "/", StringComparison.Ordinal);
+
+    public InboxOverviewViewModel GetInboxOverview()
+    {
+        var inbox = ResolvePath(_opt.StatementInboxPath);
+        if (!Directory.Exists(inbox))
+        {
+            return new InboxOverviewViewModel
+            {
+                AbsoluteInboxPath = inbox,
+                ScanRecursively = _opt.ScanInboxRecursively,
+                TotalPdfCount = 0,
+                Folders = [],
+                SampleRelativePdfPaths = [],
+                TopLevelSubfolders = []
+            };
+        }
+
+        var topLevel = Directory.EnumerateDirectories(inbox)
+            .Select(d => NormalizeRelativePath(Path.GetRelativePath(inbox, d)))
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var search = _opt.ScanInboxRecursively ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+        var fullPaths = Directory.EnumerateFiles(inbox, "*.pdf", search).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+        var groups = fullPaths
+            .Select(f => (Full: f, Rel: NormalizeRelativePath(Path.GetRelativePath(inbox, f))))
+            .GroupBy(x => GetFolderKey(x.Rel))
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new InboxFolderRow(
+                RelativeFolder: g.Key == "." ? "(inbox root)" : g.Key,
+                PdfCount: g.Count()))
+            .ToList();
+
+        return new InboxOverviewViewModel
+        {
+            AbsoluteInboxPath = Path.GetFullPath(inbox),
+            ScanRecursively = _opt.ScanInboxRecursively,
+            TotalPdfCount = fullPaths.Count,
+            Folders = groups,
+            SampleRelativePdfPaths = fullPaths
+                .Take(40)
+                .Select(f => NormalizeRelativePath(Path.GetRelativePath(inbox, f)))
+                .ToList(),
+            TopLevelSubfolders = topLevel
+        };
+    }
+
+    private static string GetFolderKey(string relativePdfPath)
+    {
+        var dir = Path.GetDirectoryName(relativePdfPath);
+        if (string.IsNullOrEmpty(dir)) return ".";
+        return NormalizeRelativePath(dir);
+    }
+
+    /// <summary>Creates <c>january_yyyy</c>-style folders under the inbox (idempotent).</summary>
+    public IReadOnlyList<string> EnsureMonthFolders(int startYear, int endYear)
+    {
+        var inbox = ResolvePath(_opt.StatementInboxPath);
+        Directory.CreateDirectory(inbox);
+        return MonthInboxFolderFactory.EnsureEnglishMonthFolders(inbox, startYear, endYear);
+    }
+
+    public bool TryCreateInboxSubfolder(string? relativeUserPath, out string? message)
+    {
+        message = null;
+        if (string.IsNullOrWhiteSpace(relativeUserPath))
+        {
+            message = "Enter a folder path to create (for example chase_inbox or january_2026/scans).";
+            return false;
+        }
+
+        var inbox = ResolvePath(_opt.StatementInboxPath);
+        Directory.CreateDirectory(inbox);
+        var inboxFull = Path.GetFullPath(inbox);
+        if (!InboxPathGuard.TryGetSafeDirectoryUnderInbox(inboxFull, relativeUserPath, out var dest, out var norm, out var err))
+        {
+            message = err;
+            return false;
+        }
+
+        Directory.CreateDirectory(dest);
+        message = string.IsNullOrEmpty(norm)
+            ? "Inbox root already exists."
+            : $"Folder ready: {norm}";
+        return true;
+    }
+
+    public bool TryDeleteInboxSubfolder(string? relativeUserPath, bool deleteContents, out string? message)
+    {
+        message = null;
+        if (string.IsNullOrWhiteSpace(relativeUserPath))
+        {
+            message = "Choose a folder to delete (or type a custom path).";
+            return false;
+        }
+
+        var inbox = ResolvePath(_opt.StatementInboxPath);
+        Directory.CreateDirectory(inbox);
+        var inboxFull = Path.GetFullPath(inbox);
+        if (!InboxPathGuard.TryGetSafeDirectoryUnderInbox(inboxFull, relativeUserPath, out var dest, out var norm, out var err))
+        {
+            message = err;
+            return false;
+        }
+
+        if (string.Equals(Path.GetFullPath(dest), inboxFull, StringComparison.OrdinalIgnoreCase))
+        {
+            message = "Cannot delete the inbox root itself.";
+            return false;
+        }
+
+        if (!Directory.Exists(dest))
+        {
+            message = $"Folder does not exist: {norm}";
+            return false;
+        }
+
+        if (!deleteContents)
+        {
+            if (Directory.EnumerateFileSystemEntries(dest).Any())
+            {
+                message =
+                    "Folder is not empty. Remove files first, or check \"Delete including all files and subfolders\" to remove everything.";
+                return false;
+            }
+
+            Directory.Delete(dest, recursive: false);
+            message = $"Deleted empty folder: {norm}";
+            return true;
+        }
+
+        Directory.Delete(dest, recursive: true);
+        message = $"Deleted folder and all contents: {norm}";
+        return true;
+    }
+
+    /// <summary>Lists PDF paths for ETL. <paramref name="inboxSubfolderScope"/> is a path under the inbox (e.g. april_2026), or null for full inbox rules.</summary>
+    public (IReadOnlyList<string> Paths, string? ErrorMessage) GetPdfPathsForEtl(string? inboxSubfolderScope)
+    {
+        var inboxRootFull = Path.GetFullPath(ResolvePath(_opt.StatementInboxPath));
+        Directory.CreateDirectory(inboxRootFull);
+        if (string.IsNullOrWhiteSpace(inboxSubfolderScope))
+        {
+            var so = _opt.ScanInboxRecursively ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            return (Directory.EnumerateFiles(inboxRootFull, "*.pdf", so).ToList(), null);
+        }
+
+        if (!InboxPathGuard.TryGetSafeDirectoryUnderInbox(inboxRootFull, inboxSubfolderScope, out var scoped, out _, out var err))
+            return ([], err);
+
+        if (!Directory.Exists(scoped))
+            return ([], null);
+
+        return (Directory.EnumerateFiles(scoped, "*.pdf", SearchOption.AllDirectories).ToList(), null);
+    }
+
+    public int CountPdfsInScope(string? inboxSubfolderScope)
+    {
+        var (paths, _) = GetPdfPathsForEtl(inboxSubfolderScope);
+        return paths.Count;
+    }
+
+    public async Task<EtlRun> RunAsync(
+        int? defaultYear = null,
+        string? inboxSubfolderScope = null,
+        string userId = "",
+        CancellationToken ct = default)
+    {
+        var year = defaultYear ?? DateTime.UtcNow.Year;
+        var inbox = ResolvePath(_opt.StatementInboxPath);
+        var inboxRootFull = Path.GetFullPath(inbox);
+        var processed = ResolvePath(_opt.StatementProcessedPath);
+        var processedFull = Path.GetFullPath(processed);
+        Directory.CreateDirectory(inbox);
+        Directory.CreateDirectory(processedFull);
+
+        // If the scope is a month folder (e.g. "may_2026"), filter transactions to that calendar month.
+        var scopedMonth = string.IsNullOrWhiteSpace(inboxSubfolderScope)
+            ? (DateOnly?)null
+            : TryParseMonthFromFolderName(inboxSubfolderScope);
+
+        var run = new EtlRun { StartedUtc = DateTime.UtcNow, UserId = userId };
+        db.EtlRuns.Add(run);
+
+        var log = new StringBuilder();
+        try
+        {
+            log.AppendLine($"Inbox: {inboxRootFull}");
+            log.AppendLine(
+                string.IsNullOrWhiteSpace(inboxSubfolderScope)
+                    ? $"Scope: entire inbox (recursive={_opt.ScanInboxRecursively})"
+                    : $"Scope: subfolder \"{inboxSubfolderScope}\" (always recursive under scope)");
+
+            if (scopedMonth.HasValue)
+                log.AppendLine($"Date filter: {scopedMonth.Value:MMMM yyyy} (1st–last day only)");
+
+            var (paths, err) = GetPdfPathsForEtl(inboxSubfolderScope);
+            if (err is not null)
+            {
+                log.AppendLine(err);
+                run.FilesSeen = 0;
+                run.Success = false;
+                run.Log = ClampForEtlRunLog(log.ToString());
+                return run;
+            }
+
+            var files = paths.ToList();
+            var pendingHashes = new HashSet<string>(StringComparer.Ordinal);
+            run.FilesSeen = files.Count;
+            log.AppendLine($"PDF files in scope: {files.Count}");
+
+            foreach (var path in files)
+            {
+                ct.ThrowIfCancellationRequested();
+                var relFromInbox = NormalizeRelativePath(Path.GetRelativePath(inboxRootFull, path));
+                var text = pdf.ExtractAllText(path);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    log.AppendLine($"SKIP (no text): {relFromInbox}");
+                    continue;
+                }
+
+                var fromName = StatementDetection.DetectFromFileName(relFromInbox);
+                var source = StatementDetection.DetectFromText(text, fromName);
+                if (source == StatementSource.Unknown)
+                    log.AppendLine($"WARN: Unknown source, using generic parser: {relFromInbox}");
+
+                var lines = StatementLineParser.Parse(source, text, year);
+
+                // Filter to calendar month when scope is a known month folder.
+                if (scopedMonth.HasValue)
+                {
+                    var (sy, sm) = (scopedMonth.Value.Year, scopedMonth.Value.Month);
+                    var before = lines.Count;
+                    lines = lines.Where(l => l.Date.Year == sy && l.Date.Month == sm).ToList();
+                    var dropped = before - lines.Count;
+                    log.AppendLine($"{relFromInbox}: parsed {before} lines ({source}), kept {lines.Count} in {scopedMonth.Value:MMMM yyyy}" +
+                                   (dropped > 0 ? $", dropped {dropped} outside month" : ""));
+                }
+                else
+                {
+                    log.AppendLine($"{relFromInbox}: parsed {lines.Count} lines ({source})");
+                }
+
+                foreach (var line in lines)
+                {
+                    var expenseAmount = ToExpenseAmount(line.SignedAmount, source);
+                    if (expenseAmount <= 0) continue;
+
+                    var cat = classifier.Classify(line.Description, expenseAmount, source);
+                    var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, relFromInbox, userId);
+
+                    if (pendingHashes.Contains(hash) ||
+                        await db.ParsedTransactions.AnyAsync(t => t.DedupeHash == hash, ct).ConfigureAwait(false))
+                    {
+                        run.TransactionsSkippedDuplicate++;
+                        continue;
+                    }
+
+                    db.ParsedTransactions.Add(new ParsedTransaction
+                    {
+                        UserId = userId,
+                        PostedDate = line.Date,
+                        Description = ClampForParsedDescription(line.Description),
+                        Amount = expenseAmount,
+                        Category = cat,
+                        Source = source,
+                        SourceFileName = ClampForSourceFileName(relFromInbox),
+                        DedupeHash = hash,
+                        CategoryOverridden = false
+                    });
+                    pendingHashes.Add(hash);
+                    run.TransactionsInserted++;
+                }
+
+                if (_opt.MoveFilesAfterImport)
+                {
+                    var dest = Path.Combine(processedFull, relFromInbox);
+                    var destDir = Path.GetDirectoryName(dest);
+                    if (!string.IsNullOrEmpty(destDir))
+                        Directory.CreateDirectory(destDir);
+                    if (File.Exists(dest))
+                        dest = Path.Combine(
+                            Path.GetDirectoryName(dest)!,
+                            $"{Path.GetFileNameWithoutExtension(dest)}_{DateTime.UtcNow:yyyyMMddHHmmss}.pdf");
+                    File.Move(path, dest);
+                    log.AppendLine($"Moved to processed: {NormalizeRelativePath(Path.GetRelativePath(processedFull, dest))}");
+                }
+            }
+
+            run.Success = true;
+            run.Log = ClampForEtlRunLog(log.ToString());
+        }
+        catch (Exception ex)
+        {
+            run.Success = false;
+            log.AppendLine("ERROR: " + ex.Message);
+            run.Log = ClampForEtlRunLog(log.ToString());
+            logger.LogError(ex, "ETL failed");
+        }
+        finally
+        {
+            run.FinishedUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        return run;
+    }
+
+    /// <summary>Deletes parsed PDF transactions for a calendar month scoped to the given user.</summary>
+    public Task<int> DeleteParsedTransactionsForMonthAsync(DateOnly month, string userId, CancellationToken ct = default)
+    {
+        var start = month;
+        var end = month.AddMonths(1);
+        return db.ParsedTransactions
+            .Where(t => t.UserId == userId && t.PostedDate >= start && t.PostedDate < end)
+            .ExecuteDeleteAsync(ct);
+    }
+
+    /// <summary>Saves uploaded PDFs under the inbox. Custom folder field overrides the dropdown when set.</summary>
+    public async Task<PdfUploadResult> UploadPdfFilesAsync(
+        IReadOnlyList<IFormFile> files,
+        string? targetFolderSelect,
+        string? targetFolderCustom,
+        CancellationToken ct = default)
+    {
+        var messages = new List<string>();
+        var inbox = ResolvePath(_opt.StatementInboxPath);
+        Directory.CreateDirectory(inbox);
+        var inboxFull = Path.GetFullPath(inbox);
+
+        var custom = targetFolderCustom?.Trim();
+        var sel = targetFolderSelect?.Trim();
+        var raw = !string.IsNullOrEmpty(custom) ? custom : sel ?? "";
+
+        if (!InboxPathGuard.TryGetSafeDirectoryUnderInbox(inboxFull, raw, out var destDir, out _, out var dirError))
+        {
+            messages.Add(dirError ?? "Invalid folder.");
+            return new PdfUploadResult(0, files?.Count ?? 0, messages);
+        }
+
+        Directory.CreateDirectory(destDir);
+        var maxBytes = _opt.MaxUploadBytesPerFile;
+        if (maxBytes <= 0) maxBytes = 52_428_800L;
+
+        var saved = 0;
+        var skipped = 0;
+        var nonEmpty = files.Where(f => f is { Length: > 0 }).ToList();
+        if (nonEmpty.Count == 0)
+        {
+            messages.Add("No files selected.");
+            return new PdfUploadResult(0, 0, messages);
+        }
+
+        foreach (var file in nonEmpty)
+        {
+            if (file.Length > maxBytes)
+            {
+                messages.Add($"Skipped (too large, max {maxBytes} bytes): {Path.GetFileName(file.FileName)}");
+                skipped++;
+                continue;
+            }
+
+            var name = Path.GetFileName(file.FileName);
+            if (string.IsNullOrEmpty(name) || !name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                messages.Add($"Skipped (not a .pdf): {name}");
+                skipped++;
+                continue;
+            }
+
+            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            {
+                messages.Add($"Skipped (bad file name): {name}");
+                skipped++;
+                continue;
+            }
+
+            var destPath = Path.Combine(destDir, name);
+            if (File.Exists(destPath))
+            {
+                messages.Add($"Skipped (file already exists in this folder — delete or rename it first): {name}");
+                skipped++;
+                continue;
+            }
+
+            await using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, true))
+            {
+                await file.CopyToAsync(fs, ct).ConfigureAwait(false);
+            }
+
+            saved++;
+            messages.Add($"Saved {NormalizeRelativePath(Path.GetRelativePath(inboxFull, destPath))}");
+        }
+
+        return new PdfUploadResult(saved, skipped, messages);
+    }
+
+    /// <summary>
+    /// Normalize so positive means money out (expense), using the sign convention of each institution.
+    /// </summary>
+    private static decimal ToExpenseAmount(decimal signedFromStatement, StatementSource source)
+    {
+        return source switch
+        {
+            StatementSource.ChaseCredit => signedFromStatement <= 0 ? 0m : signedFromStatement,
+            StatementSource.BankOfAmerica => signedFromStatement >= 0 ? 0m : decimal.Negate(signedFromStatement),
+            _ => signedFromStatement < 0 ? decimal.Negate(signedFromStatement) : signedFromStatement
+        };
+    }
+
+    /// <summary>Parses a folder name like "may_2026" into the first day of that month. Returns null if unrecognised.</summary>
+    private static DateOnly? TryParseMonthFromFolderName(string folderName)
+    {
+        var top = folderName.Split('/')[0].Trim();
+        var parts = top.Split('_');
+        if (parts.Length != 2) return null;
+        if (!int.TryParse(parts[1], out var year) || year < 2000 || year > 2100) return null;
+        for (var m = 1; m <= 12; m++)
+        {
+            if (string.Equals(English.DateTimeFormat.GetMonthName(m), parts[0], StringComparison.OrdinalIgnoreCase))
+                return new DateOnly(year, m, 1);
+        }
+        return null;
+    }
+
+    private static string ClampForParsedDescription(string description)
+    {
+        const int max = 512;
+        if (string.IsNullOrEmpty(description)) return "";
+        return description.Length <= max ? description : description[..max];
+    }
+
+    private static string ClampForEtlRunLog(string logText)
+    {
+        const int max = 7900;
+        if (string.IsNullOrEmpty(logText)) return logText;
+        return logText.Length <= max ? logText : logText[..max] + "\n…(log truncated)";
+    }
+
+    private static string ClampForSourceFileName(string relativePath)
+    {
+        const int max = 260;
+        if (string.IsNullOrEmpty(relativePath)) return "";
+        return relativePath.Length <= max ? relativePath : relativePath[..max];
+    }
+}

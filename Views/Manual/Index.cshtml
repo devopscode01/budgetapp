@@ -1,0 +1,169 @@
+@model BudgetApp.ViewModels.ManualVm
+@using BudgetApp.Models
+@{
+    ViewData["Title"] = "Manual Entries";
+    ViewData["MonthYm"] = Model.MonthYm;
+    var expenseCategories = Enum.GetValues<ExpenseCategory>()
+        .Where(c => c != ExpenseCategory.Income)
+        .ToList();
+}
+
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">Manual Entries</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">@Model.MonthLabel — paychecks, cash, tithes</p>
+    </div>
+    <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@Model.MonthYm"
+       class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+@* ── Income ───────────────────────────────────── *@
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="section-title">Add Income</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                Add each income source separately — e.g. your paycheck and your spouse's paycheck.
+            </p>
+            <form method="post" asp-action="Add">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <input type="hidden" name="category" value="@((int)ExpenseCategory.Income)" />
+                <div class="mb-3">
+                    <label class="form-label">Source</label>
+                    <input name="description" type="text" class="form-control"
+                           placeholder="e.g. Paul paycheck, Alex paycheck" required maxlength="200" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Amount ($)</label>
+                    <input name="amount" type="number" step="0.01" min="0.01"
+                           class="form-control" placeholder="0.00" required />
+                </div>
+                <button type="submit" class="btn btn-success w-100">+ Add Income</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="section-title mb-0">Income This Month</div>
+                <span class="fw-bold text-money text-success fs-5">
+                    @Model.IncomeEntries.Sum(e => e.Amount).ToString("C2")
+                </span>
+            </div>
+            @if (!Model.IncomeEntries.Any())
+            {
+                <p style="font-size:.875rem;color:var(--tm)">No income entries yet. Add your paychecks above.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table budget-table mb-0">
+                        <thead><tr><th>Source</th><th class="text-end">Amount</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var e in Model.IncomeEntries)
+                            {
+                                <tr>
+                                    <td class="fw-medium">@e.Description</td>
+                                    <td class="text-end text-money fw-semibold text-success">@e.Amount.ToString("C2")</td>
+                                    <td style="width:32px">
+                                        <form method="post" asp-action="Delete" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@e.Id" />
+                                            <input type="hidden" name="ym" value="@Model.MonthYm" />
+                                            <button type="submit" class="btn btn-link btn-xs text-danger p-0"
+                                                    onclick="return confirm('Delete this entry?')">&#10005;</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<hr style="border-color:var(--border);margin:1.5rem 0" />
+
+@* ── Expenses ──────────────────────────────────── *@
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="section-title">Add Expense</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                Cash purchases, tithes, anything not on a statement.
+            </p>
+            <form method="post" asp-action="Add">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <div class="mb-3">
+                    <label class="form-label">Description</label>
+                    <input name="description" type="text" class="form-control"
+                           placeholder="e.g. Tithe, Cash groceries" required maxlength="200" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Amount ($)</label>
+                    <input name="amount" type="number" step="0.01" min="0.01"
+                           class="form-control" placeholder="0.00" required />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Category</label>
+                    <select name="category" class="form-select">
+                        @foreach (var c in expenseCategories)
+                        {
+                            <option value="@((int)c)">@c</option>
+                        }
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">+ Add Expense</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="section-title mb-0">Manual Expenses This Month</div>
+                <span class="fw-bold text-money fs-5">
+                    @Model.ExpenseEntries.Sum(e => e.Amount).ToString("C2")
+                </span>
+            </div>
+            @if (!Model.ExpenseEntries.Any())
+            {
+                <p style="font-size:.875rem;color:var(--tm)">No manual expenses yet.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table budget-table mb-0">
+                        <thead>
+                            <tr><th>Description</th><th>Category</th><th class="text-end">Amount</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var e in Model.ExpenseEntries)
+                            {
+                                <tr>
+                                    <td>@e.Description</td>
+                                    <td><small style="color:var(--tf)">@e.Category</small></td>
+                                    <td class="text-end text-money">@e.Amount.ToString("C2")</td>
+                                    <td style="width:32px">
+                                        <form method="post" asp-action="Delete" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@e.Id" />
+                                            <input type="hidden" name="ym" value="@Model.MonthYm" />
+                                            <button type="submit" class="btn btn-link btn-xs text-danger p-0"
+                                                    onclick="return confirm('Delete this entry?')">&#10005;</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
