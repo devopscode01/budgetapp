@@ -7,6 +7,7 @@ using BudgetApp.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OtpNet;
@@ -16,8 +17,16 @@ namespace BudgetApp.Controllers;
 public sealed class AccountController(
     IConfiguration config,
     IHttpClientFactory httpFactory,
-    BudgetDbContext db) : Controller
+    BudgetDbContext db,
+    IDataProtectionProvider dpProvider) : Controller
 {
+    private const string TwoFactorCookieName = ".Budget.TwoFactor";
+    private IDataProtector TfProtector => dpProvider.CreateProtector("BudgetApp.TwoFactor.v1");
+
+    private sealed record TfChallenge(
+        string UserId, string Username, string Email,
+        string RealmAccess, bool IsApproved, bool IsAdmin, string ReturnUrl);
+
     // ── Login ─────────────────────────────────────────────────────────────────
 
     [HttpGet, AllowAnonymous]
@@ -106,32 +115,20 @@ public sealed class AccountController(
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
-        // 2FA verification
+        // 2FA: redirect to dedicated challenge page so password field isn't lost
         if (budgetUser.TotpEnabled && !string.IsNullOrEmpty(budgetUser.TotpSecret))
         {
-            var otp = Request.Form["otp"].ToString().Trim();
-            if (string.IsNullOrEmpty(otp))
+            var tfRealmAccess = jwt.Claims.FirstOrDefault(c => c.Type == "realm_access")?.Value ?? "";
+            var challenge = new TfChallenge(userId, preferredUsername, email,
+                tfRealmAccess, budgetUser.IsApproved, budgetUser.IsAdmin, returnUrl ?? "/");
+            var encrypted = TfProtector.Protect(JsonSerializer.Serialize(challenge));
+            Response.Cookies.Append(TwoFactorCookieName, encrypted, new CookieOptions
             {
-                ViewBag.Error   = "Enter your authenticator code.";
-                ViewBag.Show2FA = true;
-                return View();
-            }
-            try
-            {
-                var totp = new Totp(Base32Encoding.ToBytes(budgetUser.TotpSecret));
-                if (!totp.VerifyTotp(otp, out _, new VerificationWindow(2, 2)))
-                {
-                    ViewBag.Error   = "Invalid authenticator code.";
-                    ViewBag.Show2FA = true;
-                    return View();
-                }
-            }
-            catch
-            {
-                ViewBag.Error   = "2FA verification failed. Contact your administrator.";
-                ViewBag.Show2FA = true;
-                return View();
-            }
+                HttpOnly = true,
+                SameSite = SameSiteMode.Strict,
+                Expires  = DateTimeOffset.UtcNow.AddMinutes(5)
+            });
+            return RedirectToAction(nameof(Verify2FA));
         }
 
         var claims = new List<Claim>
@@ -170,6 +167,86 @@ public sealed class AccountController(
 
         return budgetUser.IsApproved
             ? Redirect(returnUrl ?? "/")
+            : Redirect("/Account/Pending");
+    }
+
+    // ── 2FA challenge ─────────────────────────────────────────────────────────
+
+    [HttpGet, AllowAnonymous]
+    public IActionResult Verify2FA()
+    {
+        if (!Request.Cookies.ContainsKey(TwoFactorCookieName))
+            return RedirectToAction(nameof(Login));
+        return View();
+    }
+
+    [HttpPost, AllowAnonymous, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Verify2FA(string code, CancellationToken ct)
+    {
+        if (!Request.Cookies.TryGetValue(TwoFactorCookieName, out var encrypted))
+            return RedirectToAction(nameof(Login));
+
+        TfChallenge challenge;
+        try { challenge = JsonSerializer.Deserialize<TfChallenge>(TfProtector.Unprotect(encrypted))!; }
+        catch { return RedirectToAction(nameof(Login)); }
+
+        // Verify TOTP
+        var budgetUser = await db.BudgetUsers.FindAsync(new object[] { challenge.UserId }, ct).ConfigureAwait(false);
+        if (budgetUser is null || !budgetUser.TotpEnabled || string.IsNullOrEmpty(budgetUser.TotpSecret))
+            return RedirectToAction(nameof(Login));
+
+        bool valid = false;
+        try
+        {
+            var totp = new Totp(Base32Encoding.ToBytes(budgetUser.TotpSecret));
+            valid = totp.VerifyTotp(code?.Trim() ?? "", out _, new VerificationWindow(2, 2));
+        }
+        catch { }
+
+        if (!valid)
+        {
+            ViewBag.Error = "Invalid code. Try again.";
+            return View();
+        }
+
+        Response.Cookies.Delete(TwoFactorCookieName);
+
+        // Build full cookie identity
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, challenge.UserId),
+            new("preferred_username",      challenge.Username),
+            new(ClaimTypes.Email,          challenge.Email),
+            new(ClaimTypes.Name,           challenge.Username),
+        };
+
+        if (!string.IsNullOrEmpty(challenge.RealmAccess))
+        {
+            try
+            {
+                using var ra = JsonDocument.Parse(challenge.RealmAccess);
+                if (ra.RootElement.TryGetProperty("roles", out var roles))
+                    foreach (var role in roles.EnumerateArray())
+                        if (role.GetString() is { } r)
+                            claims.Add(new Claim(ClaimTypes.Role, r));
+            }
+            catch { }
+        }
+
+        if (challenge.IsApproved) claims.Add(new Claim("budget_approved", "true"));
+        if (challenge.IsAdmin)    claims.Add(new Claim("budget_admin",    "true"));
+
+        var principal = new ClaimsPrincipal(
+            new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
+
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(10) })
+            .ConfigureAwait(false);
+
+        return challenge.IsApproved
+            ? Redirect(challenge.ReturnUrl)
             : Redirect("/Account/Pending");
     }
 
