@@ -6,12 +6,14 @@ using BudgetApp.Options;
 using BudgetApp.Services;
 using BudgetApp.ViewModels;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,6 +54,7 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keysDir))
     .SetApplicationName("BudgetApp");
 
+var kc = builder.Configuration.GetSection("Keycloak");
 builder.Services
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
@@ -60,6 +63,16 @@ builder.Services
         o.AccessDeniedPath = "/Account/AccessDenied";
         o.ExpireTimeSpan = TimeSpan.FromHours(10);
         o.SlidingExpiration = true;
+    })
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, o =>
+    {
+        o.Authority = kc["Authority"];
+        o.RequireHttpsMetadata = false; // Keycloak is on internal HTTP
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateAudience = false,   // Keycloak ROPC tokens don't set audience to client ID
+            NameClaimType = "preferred_username",
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -133,6 +146,7 @@ app.Use(async (context, next) =>
     {
         var path = context.Request.Path.Value ?? "";
         var isPublicPath = path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase)
+                        || path.StartsWith("/api", StringComparison.OrdinalIgnoreCase)
                         || path.StartsWith("/favicon", StringComparison.OrdinalIgnoreCase)
                         || path.StartsWith("/_", StringComparison.OrdinalIgnoreCase);
 

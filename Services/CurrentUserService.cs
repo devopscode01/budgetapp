@@ -30,15 +30,29 @@ public sealed class CurrentUserService(IHttpContextAccessor httpContextAccessor)
 
     public bool IsAdmin => Principal?.FindFirstValue("budget_admin") == "true";
 
-    /// <summary>Effective household ID — own userId for solo users, or shared ID for household members.</summary>
+    /// <summary>Effective household ID from cookie claim (fast path). Null means no claim — use GetHouseholdUserIdsAsync which does DB lookup.</summary>
     public string HouseholdId =>
         Principal?.FindFirstValue("household_id")
         ?? UserId;
 
-    /// <summary>Returns all user IDs that share this user's household (including self).</summary>
+    /// <summary>Returns all user IDs that share this user's household (including self). Falls back to DB lookup for JWT-authenticated requests.</summary>
     public async Task<IReadOnlyList<string>> GetHouseholdUserIdsAsync(BudgetDbContext db, CancellationToken ct)
     {
-        var hid = HouseholdId;
+        string hid;
+        var claimHid = Principal?.FindFirstValue("household_id");
+        if (claimHid is not null)
+        {
+            hid = claimHid;
+        }
+        else
+        {
+            // JWT auth path: no household_id claim, look up BudgetUser to get household
+            var uid = UserId;
+            var bu = await db.BudgetUsers.AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == uid, ct).ConfigureAwait(false);
+            hid = bu?.HouseholdId ?? uid;
+        }
+
         return await db.BudgetUsers
             .Where(u => u.HouseholdId == hid || (u.HouseholdId == null && u.Id == hid))
             .Select(u => u.Id)
