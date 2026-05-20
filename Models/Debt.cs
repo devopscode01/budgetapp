@@ -15,4 +15,5 @@ public sealed class Debt
     public string Notes { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+    public string AddedByName { get; set; } = string.Empty;
 }

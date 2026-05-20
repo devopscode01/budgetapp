@@ -1,9 +1,11 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BudgetApp.Data;
 using BudgetApp.Models;
+using BudgetApp.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -18,14 +20,15 @@ public sealed class AccountController(
     IConfiguration config,
     IHttpClientFactory httpFactory,
     BudgetDbContext db,
-    IDataProtectionProvider dpProvider) : Controller
+    IDataProtectionProvider dpProvider,
+    CurrentUserService currentUser) : Controller
 {
     private const string TwoFactorCookieName = ".Budget.TwoFactor";
     private IDataProtector TfProtector => dpProvider.CreateProtector("BudgetApp.TwoFactor.v1");
 
     private sealed record TfChallenge(
         string UserId, string Username, string Email,
-        string RealmAccess, bool IsApproved, bool IsAdmin, string ReturnUrl);
+        string RealmAccess, bool IsApproved, bool IsAdmin, string ReturnUrl, string HouseholdId);
 
     // ── Login ─────────────────────────────────────────────────────────────────
 
@@ -115,12 +118,14 @@ public sealed class AccountController(
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
-        // 2FA: redirect to dedicated challenge page so password field isn't lost
+        var householdId = budgetUser.HouseholdId ?? budgetUser.Id;
+
+        // 2FA: redirect to dedicated challenge page
         if (budgetUser.TotpEnabled && !string.IsNullOrEmpty(budgetUser.TotpSecret))
         {
             var tfRealmAccess = jwt.Claims.FirstOrDefault(c => c.Type == "realm_access")?.Value ?? "";
             var challenge = new TfChallenge(userId, preferredUsername, email,
-                tfRealmAccess, budgetUser.IsApproved, budgetUser.IsAdmin, returnUrl ?? "/");
+                tfRealmAccess, budgetUser.IsApproved, budgetUser.IsAdmin, returnUrl ?? "/", householdId);
             var encrypted = TfProtector.Protect(JsonSerializer.Serialize(challenge));
             Response.Cookies.Append(TwoFactorCookieName, encrypted, new CookieOptions
             {
@@ -131,39 +136,11 @@ public sealed class AccountController(
             return RedirectToAction(nameof(Verify2FA));
         }
 
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, userId),
-            new("preferred_username",      preferredUsername),
-            new(ClaimTypes.Email,          email),
-            new(ClaimTypes.Name,           preferredUsername),
-        };
+        var claims = BuildClaims(userId, preferredUsername, email,
+            jwt.Claims.FirstOrDefault(c => c.Type == "realm_access")?.Value,
+            budgetUser.IsApproved, budgetUser.IsAdmin, householdId);
 
-        var realmAccess = jwt.Claims.FirstOrDefault(c => c.Type == "realm_access")?.Value;
-        if (realmAccess is not null)
-        {
-            try
-            {
-                using var ra = JsonDocument.Parse(realmAccess);
-                if (ra.RootElement.TryGetProperty("roles", out var roles))
-                    foreach (var role in roles.EnumerateArray())
-                        if (role.GetString() is { } r)
-                            claims.Add(new Claim(ClaimTypes.Role, r));
-            }
-            catch { }
-        }
-
-        if (budgetUser.IsApproved) claims.Add(new Claim("budget_approved", "true"));
-        if (budgetUser.IsAdmin)    claims.Add(new Claim("budget_admin",    "true"));
-
-        var principal = new ClaimsPrincipal(
-            new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
-
-        await HttpContext.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            principal,
-            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(10) })
-            .ConfigureAwait(false);
+        await SignInAsync(claims, ct).ConfigureAwait(false);
 
         return budgetUser.IsApproved
             ? Redirect(returnUrl ?? "/")
@@ -190,7 +167,6 @@ public sealed class AccountController(
         try { challenge = JsonSerializer.Deserialize<TfChallenge>(TfProtector.Unprotect(encrypted))!; }
         catch { return RedirectToAction(nameof(Login)); }
 
-        // Verify TOTP
         var budgetUser = await db.BudgetUsers.FindAsync(new object[] { challenge.UserId }, ct).ConfigureAwait(false);
         if (budgetUser is null || !budgetUser.TotpEnabled || string.IsNullOrEmpty(budgetUser.TotpSecret))
             return RedirectToAction(nameof(Login));
@@ -211,39 +187,10 @@ public sealed class AccountController(
 
         Response.Cookies.Delete(TwoFactorCookieName);
 
-        // Build full cookie identity
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, challenge.UserId),
-            new("preferred_username",      challenge.Username),
-            new(ClaimTypes.Email,          challenge.Email),
-            new(ClaimTypes.Name,           challenge.Username),
-        };
+        var claims = BuildClaims(challenge.UserId, challenge.Username, challenge.Email,
+            challenge.RealmAccess, challenge.IsApproved, challenge.IsAdmin, challenge.HouseholdId);
 
-        if (!string.IsNullOrEmpty(challenge.RealmAccess))
-        {
-            try
-            {
-                using var ra = JsonDocument.Parse(challenge.RealmAccess);
-                if (ra.RootElement.TryGetProperty("roles", out var roles))
-                    foreach (var role in roles.EnumerateArray())
-                        if (role.GetString() is { } r)
-                            claims.Add(new Claim(ClaimTypes.Role, r));
-            }
-            catch { }
-        }
-
-        if (challenge.IsApproved) claims.Add(new Claim("budget_approved", "true"));
-        if (challenge.IsAdmin)    claims.Add(new Claim("budget_admin",    "true"));
-
-        var principal = new ClaimsPrincipal(
-            new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
-
-        await HttpContext.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            principal,
-            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(10) })
-            .ConfigureAwait(false);
+        await SignInAsync(claims, ct).ConfigureAwait(false);
 
         return challenge.IsApproved
             ? Redirect(challenge.ReturnUrl)
@@ -262,9 +209,25 @@ public sealed class AccountController(
     // ── Register ──────────────────────────────────────────────────────────────
 
     [HttpGet, AllowAnonymous]
-    public IActionResult Register()
+    public async Task<IActionResult> Register(string? token, CancellationToken ct)
     {
         if (User.Identity?.IsAuthenticated == true) return Redirect("/");
+
+        if (!string.IsNullOrEmpty(token))
+        {
+            var invite = await db.Invitations
+                .FirstOrDefaultAsync(i => i.Token == token && !i.IsUsed && i.ExpiresAt > DateTime.UtcNow, ct)
+                .ConfigureAwait(false);
+            if (invite is null)
+            {
+                ViewBag.TokenError = "This invite link is invalid or has expired.";
+            }
+            else
+            {
+                ViewBag.Token = token;
+                ViewBag.InvitedBy = invite.InvitedByName;
+            }
+        }
         return View();
     }
 
@@ -272,10 +235,27 @@ public sealed class AccountController(
     public async Task<IActionResult> Register(
         string username, string firstName, string lastName,
         string email, string password, string confirmPassword,
+        string? token,
         CancellationToken ct)
     {
         if (password != confirmPassword) { ViewBag.Error = "Passwords do not match."; return View(); }
         if (password.Length < 8)        { ViewBag.Error = "Password must be at least 8 characters."; return View(); }
+
+        // Validate invite token if present
+        Invitation? invite = null;
+        if (!string.IsNullOrEmpty(token))
+        {
+            invite = await db.Invitations
+                .FirstOrDefaultAsync(i => i.Token == token && !i.IsUsed && i.ExpiresAt > DateTime.UtcNow, ct)
+                .ConfigureAwait(false);
+            if (invite is null)
+            {
+                ViewBag.Error = "Invite link is invalid or expired. Ask your household member to generate a new one.";
+                return View();
+            }
+            ViewBag.Token = token;
+            ViewBag.InvitedBy = invite.InvitedByName;
+        }
 
         var kc        = config.GetSection("Keycloak");
         var authority = kc["Authority"]!;
@@ -304,8 +284,73 @@ public sealed class AccountController(
         if (!response.IsSuccessStatusCode)
         { ViewBag.Error = "Registration failed. Please try again."; return View(); }
 
-        TempData["Notice"] = "Account created. Sign in and wait for administrator approval.";
+        // If invited, look up new user's Keycloak ID and pre-create the BudgetUser record
+        if (invite is not null)
+        {
+            try
+            {
+                var search = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get,
+                    $"{adminUrl}/admin/realms/{realm}/users?username={Uri.EscapeDataString(username)}&exact=true")
+                { Headers = { { "Authorization", $"Bearer {adminToken}" } } }, ct).ConfigureAwait(false);
+
+                if (search.IsSuccessStatusCode)
+                {
+                    using var doc = JsonDocument.Parse(await search.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+                    var users = doc.RootElement.EnumerateArray().ToList();
+                    if (users.Count > 0 && users[0].TryGetProperty("id", out var idEl))
+                    {
+                        var newUserId = idEl.GetString()!;
+                        db.BudgetUsers.Add(new BudgetUser
+                        {
+                            Id          = newUserId,
+                            Email       = email,
+                            DisplayName = username,
+                            IsApproved  = true,
+                            IsAdmin     = false,
+                            CreatedUtc  = DateTime.UtcNow,
+                            ApprovedUtc = DateTime.UtcNow,
+                            HouseholdId = invite.HouseholdId
+                        });
+                        invite.IsUsed          = true;
+                        invite.UsedAt          = DateTime.UtcNow;
+                        invite.UsedByDisplayName = username;
+                        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch { /* non-fatal: user can still log in, admin can approve manually */ }
+        }
+
+        TempData["Notice"] = invite is not null
+            ? $"Account created! You've been added to {invite.InvitedByName}'s household. Sign in now."
+            : "Account created. Sign in and wait for administrator approval.";
         return RedirectToAction(nameof(Login));
+    }
+
+    // ── Invite link generation ────────────────────────────────────────────────
+
+    [HttpPost, Authorize, ValidateAntiForgeryToken]
+    public async Task<IActionResult> GenerateInvite(CancellationToken ct)
+    {
+        var userId     = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var budgetUser = await db.BudgetUsers.FindAsync(new object[] { userId }, ct).ConfigureAwait(false);
+        var householdId = budgetUser?.HouseholdId ?? userId;
+
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+        db.Invitations.Add(new Invitation
+        {
+            Token         = token,
+            HouseholdId   = householdId,
+            InvitedByName = currentUser.DisplayName,
+            CreatedAt     = DateTime.UtcNow,
+            ExpiresAt     = DateTime.UtcNow.AddDays(7)
+        });
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        TempData["InviteLink"] = $"{Request.Scheme}://{Request.Host}/Account/Register?token={token}";
+        return RedirectToAction(nameof(Profile));
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────────
@@ -358,9 +403,18 @@ public sealed class AccountController(
     [HttpGet, Authorize]
     public async Task<IActionResult> Profile(CancellationToken ct)
     {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var user   = await db.BudgetUsers.FindAsync(new object[] { userId! }, ct).ConfigureAwait(false);
-        ViewBag.TotpEnabled = user?.TotpEnabled ?? false;
+        var userId     = User.FindFirst(ClaimTypes.NameIdentifier)?.Value!;
+        var user       = await db.BudgetUsers.FindAsync(new object[] { userId }, ct).ConfigureAwait(false);
+        var householdId = user?.HouseholdId ?? userId;
+
+        var members = await db.BudgetUsers
+            .Where(u => u.HouseholdId == householdId || (u.HouseholdId == null && u.Id == householdId))
+            .AsNoTracking()
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        ViewBag.TotpEnabled      = user?.TotpEnabled ?? false;
+        ViewBag.HouseholdMembers = members;
+        ViewBag.InviteLink       = TempData["InviteLink"] as string;
         return View();
     }
 
@@ -376,7 +430,6 @@ public sealed class AccountController(
         var kc = config.GetSection("Keycloak");
         var (adminUrl, realm) = SplitAuthority(kc["Authority"]!);
 
-        // Verify current password
         using var client = httpFactory.CreateClient();
         var verify = await client.PostAsync(
             $"{kc["Authority"]}/protocol/openid-connect/token",
@@ -480,6 +533,49 @@ public sealed class AccountController(
     public IActionResult AccessDenied() => View();
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<Claim> BuildClaims(
+        string userId, string username, string email,
+        string? realmAccess, bool isApproved, bool isAdmin, string householdId)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, userId),
+            new("preferred_username",      username),
+            new(ClaimTypes.Email,          email),
+            new(ClaimTypes.Name,           username),
+            new("household_id",            householdId),
+        };
+
+        if (realmAccess is not null)
+        {
+            try
+            {
+                using var ra = JsonDocument.Parse(realmAccess);
+                if (ra.RootElement.TryGetProperty("roles", out var roles))
+                    foreach (var role in roles.EnumerateArray())
+                        if (role.GetString() is { } r)
+                            claims.Add(new Claim(ClaimTypes.Role, r));
+            }
+            catch { }
+        }
+
+        if (isApproved) claims.Add(new Claim("budget_approved", "true"));
+        if (isAdmin)    claims.Add(new Claim("budget_admin",    "true"));
+        return claims;
+    }
+
+    private async Task SignInAsync(List<Claim> claims, CancellationToken ct)
+    {
+        _ = ct;
+        var principal = new ClaimsPrincipal(
+            new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddHours(10) })
+            .ConfigureAwait(false);
+    }
 
     private static (string adminUrl, string realm) SplitAuthority(string authority)
     {

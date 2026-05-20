@@ -1,6 +1,9 @@
 @{
     Layout = null;
-    var error = ViewBag.Error as string;
+    var error      = ViewBag.Error as string;
+    var tokenError = ViewBag.TokenError as string;
+    var invitedBy  = ViewBag.InvitedBy as string;
+    var token      = ViewBag.Token as string;
 }
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
@@ -87,10 +90,27 @@
                 </svg>
                 Budget
             </div>
-            <p class="login-sub">Request access to this instance</p>
+            @if (!string.IsNullOrEmpty(invitedBy))
+            {
+                <p class="login-sub" style="color:var(--green);font-weight:600">
+                    You've been invited by @invitedBy to join their household!
+                </p>
+            }
+            else if (!string.IsNullOrEmpty(tokenError))
+            {
+                <p class="login-sub" style="color:var(--red)">@tokenError</p>
+            }
+            else
+            {
+                <p class="login-sub">Request access to this instance</p>
+            }
 
             <form method="post" asp-action="Register" asp-controller="Account" id="regForm">
                 @Html.AntiForgeryToken()
+                @if (!string.IsNullOrEmpty(token))
+                {
+                    <input type="hidden" name="token" value="@token" />
+                }
 
                 <div style="margin-bottom:1rem">
                     <label class="login-label" for="username">Username</label>
@@ -126,7 +146,9 @@
                            autocomplete="new-password" />
                 </div>
 
-                <button class="login-btn" type="submit" id="submitBtn">Request access</button>
+                <button class="login-btn" type="submit" id="submitBtn">
+                    @(string.IsNullOrEmpty(token) ? "Request access" : "Create account")
+                </button>
 
                 @if (!string.IsNullOrEmpty(error))
                 {

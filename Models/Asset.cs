@@ -11,4 +11,5 @@ public sealed class Asset
     public decimal Value { get; set; }
     public string Notes { get; set; } = string.Empty;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+    public string AddedByName { get; set; } = string.Empty;
 }

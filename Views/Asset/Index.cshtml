@@ -172,6 +172,10 @@ else
                     }
                     <div style="font-size:.75rem;color:var(--tf);margin-top:.35rem">
                         Updated @a.UpdatedUtc.ToLocalTime().ToString("MMM d, yyyy")
+                        @if (!string.IsNullOrWhiteSpace(a.AddedByName))
+                        {
+                            <span> · Added by @a.AddedByName</span>
+                        }
                     </div>
                 </div>
             </div>

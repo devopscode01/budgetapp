@@ -11,6 +11,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
     public DbSet<Debt> Debts => Set<Debt>();
     public DbSet<BudgetUser> BudgetUsers => Set<BudgetUser>();
     public DbSet<Asset> Assets => Set<Asset>();
+    public DbSet<Invitation> Invitations => Set<Invitation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +34,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.UserId).HasMaxLength(128);
             e.Property(x => x.Description).HasMaxLength(512);
             e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.AddedByName).HasMaxLength(256);
         });
 
         modelBuilder.Entity<EtlRun>(e =>
@@ -50,6 +52,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Balance).HasPrecision(18, 2);
             e.Property(x => x.MinimumPayment).HasPrecision(18, 2);
             e.Property(x => x.InterestRate).HasPrecision(6, 3);
+            e.Property(x => x.AddedByName).HasMaxLength(256);
         });
 
         modelBuilder.Entity<BudgetUser>(e =>
@@ -58,6 +61,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Id).HasMaxLength(128);
             e.Property(x => x.Email).HasMaxLength(256);
             e.Property(x => x.DisplayName).HasMaxLength(256);
+            e.Property(x => x.HouseholdId).HasMaxLength(128);
         });
 
         modelBuilder.Entity<Asset>(e =>
@@ -67,6 +71,16 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Notes).HasMaxLength(1000);
             e.Property(x => x.Value).HasPrecision(18, 2);
+            e.Property(x => x.AddedByName).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<Invitation>(e =>
+        {
+            e.HasIndex(x => x.Token).IsUnique();
+            e.Property(x => x.Token).HasMaxLength(64);
+            e.Property(x => x.HouseholdId).HasMaxLength(128);
+            e.Property(x => x.InvitedByName).HasMaxLength(256);
+            e.Property(x => x.UsedByDisplayName).HasMaxLength(256);
         });
     }
 
@@ -118,6 +132,22 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             );
             """, cancellationToken: ct).ConfigureAwait(false);
 
+        // Invitations table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "Invitations" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_Invitations" PRIMARY KEY AUTOINCREMENT,
+                "Token" TEXT NOT NULL DEFAULT '',
+                "HouseholdId" TEXT NOT NULL DEFAULT '',
+                "InvitedByName" TEXT NOT NULL DEFAULT '',
+                "CreatedAt" TEXT NOT NULL DEFAULT '',
+                "ExpiresAt" TEXT NOT NULL DEFAULT '',
+                "IsUsed" INTEGER NOT NULL DEFAULT 0,
+                "UsedAt" TEXT NULL,
+                "UsedByDisplayName" TEXT NOT NULL DEFAULT ''
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
         // Additive column migrations — SQLite doesn't support IF NOT EXISTS for ADD COLUMN,
         // so we catch the "duplicate column" error and ignore it.
         foreach (var sql in new[]
@@ -128,6 +158,10 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             "ALTER TABLE \"EtlRuns\" ADD COLUMN \"UserId\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"BudgetUsers\" ADD COLUMN \"TotpSecret\" TEXT NULL",
             "ALTER TABLE \"BudgetUsers\" ADD COLUMN \"TotpEnabled\" INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE \"BudgetUsers\" ADD COLUMN \"HouseholdId\" TEXT NULL",
+            "ALTER TABLE \"ManualExpenses\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE \"Debts\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE \"Assets\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
         })
         {
             try { await Database.ExecuteSqlRawAsync(sql, cancellationToken: ct).ConfigureAwait(false); }

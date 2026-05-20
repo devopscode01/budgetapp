@@ -7,15 +7,15 @@ using Microsoft.AspNetCore.Mvc;
 namespace BudgetApp.Controllers;
 
 [Authorize]
-public sealed class SpendingController(SpendingService spending, CurrentUserService currentUser) : Controller
+public sealed class SpendingController(SpendingService spending, CurrentUserService currentUser, BudgetApp.Data.BudgetDbContext db) : Controller
 {
     [HttpGet]
     public async Task<IActionResult> Index(string? ym, CancellationToken ct)
     {
-        var userId = currentUser.UserId;
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var month = MonthHelper.ParseMonth(ym);
-        var vm = await spending.GetMonthAsync(month, userId, ct).ConfigureAwait(false);
-        ViewBag.AvailableMonths = await spending.GetAvailableMonthsAsync(userId, ct).ConfigureAwait(false);
+        var vm = await spending.GetMonthAsync(month, householdIds, ct).ConfigureAwait(false);
+        ViewBag.AvailableMonths = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
         return View(vm);
     }
 
@@ -23,7 +23,8 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Recategorize(int id, ExpenseCategory category, string? ym, CancellationToken ct)
     {
-        var tx = await spending.FindTransactionAsync(id, currentUser.UserId, ct).ConfigureAwait(false);
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
+        var tx = await spending.FindTransactionAsync(id, householdIds, ct).ConfigureAwait(false);
         if (tx is not null)
         {
             tx.Category = category;
@@ -37,7 +38,8 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteTransaction(int id, string? ym, CancellationToken ct)
     {
-        var tx = await spending.FindTransactionAsync(id, currentUser.UserId, ct).ConfigureAwait(false);
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
+        var tx = await spending.FindTransactionAsync(id, householdIds, ct).ConfigureAwait(false);
         if (tx is not null)
         {
             spending.Delete(tx);
@@ -50,7 +52,8 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> EditTransaction(int id, string? description, decimal amount, ExpenseCategory category, string? ym, CancellationToken ct)
     {
-        var tx = await spending.FindTransactionAsync(id, currentUser.UserId, ct).ConfigureAwait(false);
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
+        var tx = await spending.FindTransactionAsync(id, householdIds, ct).ConfigureAwait(false);
         if (tx is not null)
         {
             if (!string.IsNullOrWhiteSpace(description)) tx.Description = description.Trim();

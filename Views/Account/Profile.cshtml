@@ -1,13 +1,16 @@
+@using BudgetApp.Models
 @{
     ViewData["Title"] = "Profile";
-    var pwError    = TempData["PwError"] as string;
-    var pwSuccess  = TempData["PwSuccess"] as string;
-    var totpMsg    = TempData["TotpSuccess"] as string;
-    var totpEnabled = ViewBag.TotpEnabled == true;
+    var pwError      = TempData["PwError"] as string;
+    var pwSuccess    = TempData["PwSuccess"] as string;
+    var totpMsg      = TempData["TotpSuccess"] as string;
+    var totpEnabled  = ViewBag.TotpEnabled == true;
+    var inviteLink   = ViewBag.InviteLink as string;
+    var members      = ViewBag.HouseholdMembers as IReadOnlyList<BudgetUser> ?? [];
 }
 
 <style>
-    .settings-page { max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    .settings-page { max-width: 520px; margin: 2rem auto; padding: 0 1rem; }
     .settings-card {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -17,71 +20,108 @@
         margin-bottom: 1.25rem;
     }
     .settings-title {
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--t1);
-        margin: 0 0 1.25rem;
-        padding-bottom: .75rem;
-        border-bottom: 1px solid var(--border);
+        font-size: 1rem; font-weight: 700; color: var(--t1);
+        margin: 0 0 1.25rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border);
     }
     .field-label {
-        display: block;
-        font-size: .75rem;
-        font-weight: 600;
-        color: var(--tm);
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        margin-bottom: .35rem;
+        display: block; font-size: .75rem; font-weight: 600; color: var(--tm);
+        text-transform: uppercase; letter-spacing: .05em; margin-bottom: .35rem;
     }
     .field-input {
-        display: block;
-        width: 100%;
-        padding: .55rem .8rem;
-        font-size: .9rem;
-        background: var(--surface-2);
-        color: var(--t1);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        outline: none;
+        display: block; width: 100%; padding: .55rem .8rem; font-size: .9rem;
+        background: var(--surface-2); color: var(--t1); border: 1px solid var(--border);
+        border-radius: var(--radius-sm); outline: none;
         transition: border-color var(--transition), box-shadow var(--transition);
-        box-sizing: border-box;
-        margin-bottom: .9rem;
+        box-sizing: border-box; margin-bottom: .9rem;
     }
     .field-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-subtle); }
     .btn-primary {
-        padding: .55rem 1.25rem;
-        background: var(--brand);
-        color: #fff;
-        border: none;
-        border-radius: var(--radius-sm);
-        font-size: .9rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity var(--transition);
+        padding: .55rem 1.25rem; background: var(--brand); color: #fff; border: none;
+        border-radius: var(--radius-sm); font-size: .9rem; font-weight: 600;
+        cursor: pointer; transition: opacity var(--transition);
     }
     .btn-primary:hover:not(:disabled) { opacity: .88; }
     .btn-primary:disabled { opacity: .55; cursor: default; }
     .btn-danger {
-        padding: .55rem 1.25rem;
-        background: var(--red);
-        color: #fff;
-        border: none;
-        border-radius: var(--radius-sm);
-        font-size: .9rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity var(--transition);
+        padding: .55rem 1.25rem; background: var(--red); color: #fff; border: none;
+        border-radius: var(--radius-sm); font-size: .9rem; font-weight: 600;
+        cursor: pointer; transition: opacity var(--transition);
     }
     .btn-danger:hover { opacity: .88; }
     .msg-error   { color: var(--red);   font-size: .85rem; margin-top: .6rem; }
     .msg-success { color: var(--green); font-size: .85rem; margin-top: .6rem; }
-    .totp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .totp-row    { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
     .totp-status { font-size: .9rem; color: var(--tm); }
     .totp-status strong { color: var(--t1); }
+    .member-row  { display: flex; align-items: center; gap: .6rem; padding: .45rem 0; border-bottom: 1px solid var(--border); }
+    .member-row:last-child { border-bottom: none; }
+    .member-avatar {
+        width: 32px; height: 32px; border-radius: 50%; background: var(--brand);
+        color: #fff; display: flex; align-items: center; justify-content: center;
+        font-size: .75rem; font-weight: 700; flex-shrink: 0;
+    }
+    .member-name  { font-size: .9rem; color: var(--t1); font-weight: 500; }
+    .member-badge {
+        margin-left: auto; font-size: .7rem; font-weight: 600; padding: .15rem .45rem;
+        border-radius: 999px; background: var(--brand-subtle); color: var(--brand);
+    }
+    .invite-box {
+        background: var(--surface-2); border: 1px solid var(--border);
+        border-radius: var(--radius-sm); padding: .6rem .85rem;
+        font-size: .8125rem; color: var(--tm); word-break: break-all; margin: .75rem 0;
+        display: flex; align-items: center; gap: .5rem;
+    }
+    .invite-box span { flex: 1; }
+    .copy-btn {
+        background: none; border: none; cursor: pointer; color: var(--brand);
+        font-size: .8rem; font-weight: 600; padding: 0; white-space: nowrap;
+    }
+    .invite-note { font-size: .8125rem; color: var(--tf); margin-top: .35rem; }
 </style>
 
 <div class="settings-page">
 
+    @* ── Household ────────────────────────────────── *@
+    <div class="settings-card">
+        <p class="settings-title">Household Members</p>
+
+        @foreach (var m in members)
+        {
+            var initials = m.DisplayName.Length >= 2 ? m.DisplayName[..2].ToUpper() : m.DisplayName.ToUpper();
+            <div class="member-row">
+                <div class="member-avatar">@initials</div>
+                <div>
+                    <div class="member-name">@m.DisplayName</div>
+                    <div style="font-size:.75rem;color:var(--tf)">@m.Email</div>
+                </div>
+                @if (m.IsAdmin)
+                {
+                    <span class="member-badge">Admin</span>
+                }
+                else if (!m.IsApproved)
+                {
+                    <span class="member-badge" style="background:var(--red)22;color:var(--red)">Pending</span>
+                }
+            </div>
+        }
+
+        <div style="margin-top:1.25rem">
+            <form method="post" asp-action="GenerateInvite" asp-controller="Account">
+                @Html.AntiForgeryToken()
+                <button class="btn-primary" type="submit">Generate Invite Link</button>
+            </form>
+            @if (!string.IsNullOrEmpty(inviteLink))
+            {
+                <div class="invite-box">
+                    <span id="inviteLinkText">@inviteLink</span>
+                    <button class="copy-btn" onclick="copyInvite()" title="Copy link">Copy</button>
+                </div>
+                <p class="invite-note">Share this link with your household member. It expires in 7 days and can only be used once.</p>
+            }
+        </div>
+    </div>
+
+    @* ── Change Password ──────────────────────────── *@
     <div class="settings-card">
         <p class="settings-title">Change Password</p>
         <form method="post" asp-action="ChangePassword" asp-controller="Account" id="pwForm">
@@ -101,6 +141,7 @@
         </form>
     </div>
 
+    @* ── Two-Factor Auth ──────────────────────────── *@
     <div class="settings-card">
         <p class="settings-title">Two-Factor Authentication</p>
         @if (!string.IsNullOrEmpty(totpMsg)) { <p class="msg-success" style="margin-bottom:.9rem">@totpMsg</p> }
@@ -131,5 +172,14 @@
         btn.disabled = true;
         btn.textContent = 'Updating…';
     });
+    function copyInvite() {
+        var link = document.getElementById('inviteLinkText')?.textContent?.trim();
+        if (link) {
+            navigator.clipboard.writeText(link).then(function() {
+                var btn = document.querySelector('.copy-btn');
+                if (btn) { btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent='Copy'; }, 2000); }
+            });
+        }
+    }
 </script>
 }

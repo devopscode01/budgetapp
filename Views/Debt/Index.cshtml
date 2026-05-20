@@ -130,6 +130,10 @@ else
                     {
                         <div style="font-size:.8125rem;color:var(--tf);margin-top:.25rem">@d.Notes</div>
                     }
+                    @if (!string.IsNullOrWhiteSpace(d.AddedByName))
+                    {
+                        <div style="font-size:.75rem;color:var(--tf);margin-top:.3rem">Added by @d.AddedByName</div>
+                    }
                 </div>
             </div>
         }

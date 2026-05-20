@@ -37,7 +37,8 @@ public sealed class ManualController(BudgetDbContext db, SpendingService spendin
                 Description = description.Trim(),
                 Amount = amount,
                 Category = category,
-                CreatedUtc = DateTime.UtcNow
+                CreatedUtc = DateTime.UtcNow,
+                AddedByName = currentUser.DisplayName
             });
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
@@ -48,8 +49,9 @@ public sealed class ManualController(BudgetDbContext db, SpendingService spendin
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int id, string? ym, CancellationToken ct)
     {
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var entry = await db.ManualExpenses
-            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == currentUser.UserId, ct)
+            .FirstOrDefaultAsync(m => m.Id == id && householdIds.Contains(m.UserId), ct)
             .ConfigureAwait(false);
         if (entry is not null)
         {
@@ -61,16 +63,16 @@ public sealed class ManualController(BudgetDbContext db, SpendingService spendin
 
     private async Task<ManualVm> BuildVmAsync(string? ym, CancellationToken ct)
     {
-        var userId = currentUser.UserId;
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var month = MonthHelper.ParseMonth(ym);
         var start = new DateOnly(month.Year, month.Month, 1);
         var end = start.AddMonths(1);
         var entries = await db.ManualExpenses
-            .Where(m => m.UserId == userId && m.Month >= start && m.Month < end)
+            .Where(m => householdIds.Contains(m.UserId) && m.Month >= start && m.Month < end)
             .OrderByDescending(m => m.CreatedUtc)
             .AsNoTracking()
             .ToListAsync(ct).ConfigureAwait(false);
-        var available = await spending.GetAvailableMonthsAsync(userId, ct).ConfigureAwait(false);
+        var available = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
         return new ManualVm
         {
             MonthYm = MonthHelper.FormatYm(month),

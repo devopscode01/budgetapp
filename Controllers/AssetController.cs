@@ -14,17 +14,17 @@ public sealed class AssetController(BudgetDbContext db, CurrentUserService curre
     [HttpGet]
     public async Task<IActionResult> Index(CancellationToken ct)
     {
-        var userId = currentUser.UserId;
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
 
         var assets = await db.Assets
-            .Where(a => a.UserId == userId)
+            .Where(a => householdIds.Contains(a.UserId))
             .OrderBy(a => a.Type)
             .ThenBy(a => a.Name)
             .AsNoTracking()
             .ToListAsync(ct).ConfigureAwait(false);
 
         var totalDebts = await db.Debts
-            .Where(d => d.UserId == userId && d.IsActive)
+            .Where(d => householdIds.Contains(d.UserId) && d.IsActive)
             .SumAsync(d => d.Balance, ct).ConfigureAwait(false);
 
         var vm = new AssetVm
@@ -54,7 +54,8 @@ public sealed class AssetController(BudgetDbContext db, CurrentUserService curre
                 Type = type,
                 Value = value,
                 Notes = notes?.Trim() ?? "",
-                UpdatedUtc = DateTime.UtcNow
+                UpdatedUtc = DateTime.UtcNow,
+                AddedByName = currentUser.DisplayName
             });
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
@@ -69,8 +70,9 @@ public sealed class AssetController(BudgetDbContext db, CurrentUserService curre
         [FromForm] string? notes,
         CancellationToken ct)
     {
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var asset = await db.Assets
-            .FirstOrDefaultAsync(a => a.Id == id && a.UserId == currentUser.UserId, ct)
+            .FirstOrDefaultAsync(a => a.Id == id && householdIds.Contains(a.UserId), ct)
             .ConfigureAwait(false);
         if (asset is not null)
         {
@@ -86,8 +88,9 @@ public sealed class AssetController(BudgetDbContext db, CurrentUserService curre
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var asset = await db.Assets
-            .FirstOrDefaultAsync(a => a.Id == id && a.UserId == currentUser.UserId, ct)
+            .FirstOrDefaultAsync(a => a.Id == id && householdIds.Contains(a.UserId), ct)
             .ConfigureAwait(false);
         if (asset is not null)
         {

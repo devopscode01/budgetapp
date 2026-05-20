@@ -1,3 +1,4 @@
+using BudgetApp.Data;
 using BudgetApp.Services;
 using BudgetApp.ViewModels;
 using Microsoft.AspNetCore.Authorization;
@@ -6,15 +7,15 @@ using Microsoft.AspNetCore.Mvc;
 namespace BudgetApp.Controllers;
 
 [Authorize]
-public sealed class DashboardController(SpendingService spending, CurrentUserService currentUser) : Controller
+public sealed class DashboardController(SpendingService spending, CurrentUserService currentUser, BudgetDbContext db) : Controller
 {
     [HttpGet]
     public async Task<IActionResult> Index(string? ym, CancellationToken ct)
     {
-        var userId = currentUser.UserId;
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var month = MonthHelper.ParseMonth(ym);
-        var available = await spending.GetAvailableMonthsAsync(userId, ct).ConfigureAwait(false);
-        var current = await spending.GetMonthAsync(month, userId, ct).ConfigureAwait(false);
+        var available = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
+        var current = await spending.GetMonthAsync(month, householdIds, ct).ConfigureAwait(false);
 
         var recentMonths = available
             .Select(MonthHelper.ParseMonth)
@@ -24,7 +25,7 @@ public sealed class DashboardController(SpendingService spending, CurrentUserSer
 
         var recent = new List<MonthSpendingVm>();
         foreach (var m in recentMonths)
-            recent.Add(await spending.GetMonthAsync(m, userId, ct).ConfigureAwait(false));
+            recent.Add(await spending.GetMonthAsync(m, householdIds, ct).ConfigureAwait(false));
 
         var vm = new DashboardVm
         {

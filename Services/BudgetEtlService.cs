@@ -231,6 +231,8 @@ public sealed class BudgetEtlService(
 
             var files = paths.ToList();
             var pendingHashes = new HashSet<string>(StringComparer.Ordinal);
+            // Content keys (date|amount|description) used as secondary dedup to catch same file at different paths
+            var pendingContentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             run.FilesSeen = files.Count;
             log.AppendLine($"PDF files in scope: {files.Count}");
 
@@ -263,9 +265,17 @@ public sealed class BudgetEtlService(
                         ? ExpenseCategory.Income
                         : classifier.Classify(line.Description, expenseAmount, source);
                     var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, relFromInbox, userId);
+                    var clampedDesc = ClampForParsedDescription(line.Description);
+                    var contentKey = $"{line.Date:O}|{expenseAmount.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{clampedDesc.ToUpperInvariant()}|{userId}";
 
                     if (pendingHashes.Contains(hash) ||
-                        await db.ParsedTransactions.AnyAsync(t => t.DedupeHash == hash, ct).ConfigureAwait(false))
+                        pendingContentKeys.Contains(contentKey) ||
+                        await db.ParsedTransactions.AnyAsync(t => t.DedupeHash == hash, ct).ConfigureAwait(false) ||
+                        await db.ParsedTransactions.AnyAsync(t =>
+                            t.UserId == userId &&
+                            t.PostedDate == line.Date &&
+                            t.Amount == expenseAmount &&
+                            t.Description == clampedDesc, ct).ConfigureAwait(false))
                     {
                         run.TransactionsSkippedDuplicate++;
                         continue;
@@ -275,7 +285,7 @@ public sealed class BudgetEtlService(
                     {
                         UserId = userId,
                         PostedDate = line.Date,
-                        Description = ClampForParsedDescription(line.Description),
+                        Description = clampedDesc,
                         Amount = expenseAmount,
                         Category = cat,
                         Source = source,
@@ -284,6 +294,7 @@ public sealed class BudgetEtlService(
                         CategoryOverridden = false
                     });
                     pendingHashes.Add(hash);
+                    pendingContentKeys.Add(contentKey);
                     run.TransactionsInserted++;
                 }
 

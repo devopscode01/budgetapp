@@ -1,3 +1,4 @@
+using BudgetApp.Data;
 using BudgetApp.Services;
 using BudgetApp.ViewModels;
 using Microsoft.AspNetCore.Authorization;
@@ -6,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace BudgetApp.Controllers;
 
 [Authorize]
-public sealed class ImportController(BudgetEtlService etl, SpendingService spending, CurrentUserService currentUser) : Controller
+public sealed class ImportController(BudgetEtlService etl, SpendingService spending, CurrentUserService currentUser, BudgetDbContext db) : Controller
 {
     [HttpGet]
     public async Task<IActionResult> Index(string? ym, CancellationToken ct)
@@ -57,7 +58,8 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
 
     private async Task<ImportVm> BuildVmAsync(string? ym, string? msg, bool? success, int imported, int skipped, CancellationToken ct)
     {
-        var available = await spending.GetAvailableMonthsAsync(currentUser.UserId, ct).ConfigureAwait(false);
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
+        var available = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
         return new ImportVm
         {
             MonthYm = MonthHelper.FormatYm(MonthHelper.ParseMonth(ym)),

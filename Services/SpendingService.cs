@@ -7,20 +7,20 @@ namespace BudgetApp.Services;
 
 public sealed class SpendingService(BudgetDbContext db)
 {
-    public async Task<MonthSpendingVm> GetMonthAsync(DateOnly month, string userId, CancellationToken ct = default)
+    public async Task<MonthSpendingVm> GetMonthAsync(DateOnly month, IReadOnlyList<string> userIds, CancellationToken ct = default)
     {
         var start = new DateOnly(month.Year, month.Month, 1);
         var end = start.AddMonths(1);
 
         var transactions = await db.ParsedTransactions
-            .Where(t => t.UserId == userId && t.PostedDate >= start && t.PostedDate < end)
+            .Where(t => userIds.Contains(t.UserId) && t.PostedDate >= start && t.PostedDate < end)
             .OrderBy(t => t.PostedDate)
             .ThenBy(t => t.Description)
             .AsNoTracking()
             .ToListAsync(ct).ConfigureAwait(false);
 
         var manual = await db.ManualExpenses
-            .Where(m => m.UserId == userId && m.Month >= start && m.Month < end)
+            .Where(m => userIds.Contains(m.UserId) && m.Month >= start && m.Month < end)
             .OrderBy(m => m.Description)
             .AsNoTracking()
             .ToListAsync(ct).ConfigureAwait(false);
@@ -51,25 +51,30 @@ public sealed class SpendingService(BudgetDbContext db)
         };
     }
 
-    public async Task<ParsedTransaction?> FindTransactionAsync(int id, string userId, CancellationToken ct = default) =>
+    public async Task<ParsedTransaction?> FindTransactionAsync(int id, IReadOnlyList<string> userIds, CancellationToken ct = default) =>
         await db.ParsedTransactions
-            .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId, ct)
+            .FirstOrDefaultAsync(t => t.Id == id && userIds.Contains(t.UserId), ct)
+            .ConfigureAwait(false);
+
+    public async Task<ManualExpense?> FindManualExpenseAsync(int id, IReadOnlyList<string> userIds, CancellationToken ct = default) =>
+        await db.ManualExpenses
+            .FirstOrDefaultAsync(m => m.Id == id && userIds.Contains(m.UserId), ct)
             .ConfigureAwait(false);
 
     public void Delete(ParsedTransaction tx) => db.ParsedTransactions.Remove(tx);
 
     public Task SaveAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 
-    public async Task<IReadOnlyList<string>> GetAvailableMonthsAsync(string userId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<string>> GetAvailableMonthsAsync(IReadOnlyList<string> userIds, CancellationToken ct = default)
     {
         var txMonths = await db.ParsedTransactions
-            .Where(t => t.UserId == userId)
+            .Where(t => userIds.Contains(t.UserId))
             .Select(t => new DateOnly(t.PostedDate.Year, t.PostedDate.Month, 1))
             .Distinct()
             .ToListAsync(ct).ConfigureAwait(false);
 
         var manMonths = await db.ManualExpenses
-            .Where(m => m.UserId == userId)
+            .Where(m => userIds.Contains(m.UserId))
             .Select(m => new DateOnly(m.Month.Year, m.Month.Month, 1))
             .Distinct()
             .ToListAsync(ct).ConfigureAwait(false);

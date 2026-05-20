@@ -20,4 +20,7 @@ public sealed class BudgetUser
 
     public string? TotpSecret { get; set; }
     public bool TotpEnabled { get; set; }
+
+    /// <summary>Null = solo user (household ID = own Id). Set to inviter's effective household ID when joining via invite link.</summary>
+    public string? HouseholdId { get; set; }
 }

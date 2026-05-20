@@ -14,9 +14,9 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
     [HttpGet]
     public async Task<IActionResult> Index(CancellationToken ct)
     {
-        var userId = currentUser.UserId;
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var debts = await db.Debts
-            .Where(d => d.UserId == userId)
+            .Where(d => householdIds.Contains(d.UserId))
             .OrderBy(d => d.IsActive ? 0 : 1)
             .ThenBy(d => d.Type)
             .ThenBy(d => d.CreditorName)
@@ -60,7 +60,8 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
                 DueDate = due,
                 Notes = notes?.Trim() ?? "",
                 IsActive = true,
-                UpdatedUtc = DateTime.UtcNow
+                UpdatedUtc = DateTime.UtcNow,
+                AddedByName = currentUser.DisplayName
             });
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
@@ -78,8 +79,9 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
         [FromForm] string? notes,
         CancellationToken ct)
     {
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var debt = await db.Debts
-            .FirstOrDefaultAsync(d => d.Id == id && d.UserId == currentUser.UserId, ct)
+            .FirstOrDefaultAsync(d => d.Id == id && householdIds.Contains(d.UserId), ct)
             .ConfigureAwait(false);
         if (debt is not null)
         {
@@ -98,8 +100,9 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> MarkPaid(int id, CancellationToken ct)
     {
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var debt = await db.Debts
-            .FirstOrDefaultAsync(d => d.Id == id && d.UserId == currentUser.UserId, ct)
+            .FirstOrDefaultAsync(d => d.Id == id && householdIds.Contains(d.UserId), ct)
             .ConfigureAwait(false);
         if (debt is not null)
         {
@@ -115,8 +118,9 @@ public sealed class DebtController(BudgetDbContext db, CurrentUserService curren
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Delete(int id, CancellationToken ct)
     {
+        var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var debt = await db.Debts
-            .FirstOrDefaultAsync(d => d.Id == id && d.UserId == currentUser.UserId, ct)
+            .FirstOrDefaultAsync(d => d.Id == id && householdIds.Contains(d.UserId), ct)
             .ConfigureAwait(false);
         if (debt is not null)
         {
