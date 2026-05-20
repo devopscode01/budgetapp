@@ -207,11 +207,6 @@ public sealed class BudgetEtlService(
         Directory.CreateDirectory(inbox);
         Directory.CreateDirectory(processedFull);
 
-        // If the scope is a month folder (e.g. "may_2026"), filter transactions to that calendar month.
-        var scopedMonth = string.IsNullOrWhiteSpace(inboxSubfolderScope)
-            ? (DateOnly?)null
-            : TryParseMonthFromFolderName(inboxSubfolderScope);
-
         var run = new EtlRun { StartedUtc = DateTime.UtcNow, UserId = userId };
         db.EtlRuns.Add(run);
 
@@ -223,9 +218,6 @@ public sealed class BudgetEtlService(
                 string.IsNullOrWhiteSpace(inboxSubfolderScope)
                     ? $"Scope: entire inbox (recursive={_opt.ScanInboxRecursively})"
                     : $"Scope: subfolder \"{inboxSubfolderScope}\" (always recursive under scope)");
-
-            if (scopedMonth.HasValue)
-                log.AppendLine($"Date filter: {scopedMonth.Value:MMMM yyyy} (1st–last day only)");
 
             var (paths, err) = GetPdfPathsForEtl(inboxSubfolderScope);
             if (err is not null)
@@ -259,28 +251,17 @@ public sealed class BudgetEtlService(
                     log.AppendLine($"WARN: Unknown source, using generic parser: {relFromInbox}");
 
                 var lines = StatementLineParser.Parse(source, text, year);
-
-                // Filter to calendar month when scope is a known month folder.
-                if (scopedMonth.HasValue)
-                {
-                    var (sy, sm) = (scopedMonth.Value.Year, scopedMonth.Value.Month);
-                    var before = lines.Count;
-                    lines = lines.Where(l => l.Date.Year == sy && l.Date.Month == sm).ToList();
-                    var dropped = before - lines.Count;
-                    log.AppendLine($"{relFromInbox}: parsed {before} lines ({source}), kept {lines.Count} in {scopedMonth.Value:MMMM yyyy}" +
-                                   (dropped > 0 ? $", dropped {dropped} outside month" : ""));
-                }
-                else
-                {
-                    log.AppendLine($"{relFromInbox}: parsed {lines.Count} lines ({source})");
-                }
+                log.AppendLine($"{relFromInbox}: parsed {lines.Count} lines ({source})");
 
                 foreach (var line in lines)
                 {
+                    var isIncome = source == StatementSource.BankOfAmerica && line.SignedAmount > 0;
                     var expenseAmount = ToExpenseAmount(line.SignedAmount, source);
                     if (expenseAmount <= 0) continue;
 
-                    var cat = classifier.Classify(line.Description, expenseAmount, source);
+                    var cat = isIncome
+                        ? ExpenseCategory.Income
+                        : classifier.Classify(line.Description, expenseAmount, source);
                     var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, relFromInbox, userId);
 
                     if (pendingHashes.Contains(hash) ||
@@ -437,7 +418,7 @@ public sealed class BudgetEtlService(
         return source switch
         {
             StatementSource.ChaseCredit => signedFromStatement <= 0 ? 0m : signedFromStatement,
-            StatementSource.BankOfAmerica => signedFromStatement >= 0 ? 0m : decimal.Negate(signedFromStatement),
+            StatementSource.BankOfAmerica => Math.Abs(signedFromStatement),
             _ => signedFromStatement < 0 ? decimal.Negate(signedFromStatement) : signedFromStatement
         };
     }

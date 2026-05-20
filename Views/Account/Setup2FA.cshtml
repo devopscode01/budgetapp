@@ -79,7 +79,12 @@
         </div>
 
         <p style="font-size:.8rem;color:var(--tm);text-align:center;margin-bottom:.35rem">Can't scan? Enter this code manually:</p>
-        <div class="secret-box">@ViewBag.Secret</div>
+        <div class="secret-box" style="position:relative">
+            <span id="secretText">@ViewBag.Secret</span>
+            <button type="button" id="copyBtn" onclick="copySecret()"
+                    style="position:absolute;right:.5rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--brand);font-size:.75rem;padding:.15rem .4rem;border-radius:3px"
+                    title="Copy to clipboard">Copy</button>
+        </div>
 
         <ol class="steps">
             <li>Open your authenticator app</li>
@@ -107,9 +112,7 @@
 </div>
 
 @section Scripts {
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
-        integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSr7FrrA/C8S4pHD0pn/biGBQab4Z49dBEqA=="
-        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
     new QRCode(document.getElementById('qrcode'), {
         text: '@Html.Raw(ViewBag.OtpAuth)',
@@ -121,5 +124,13 @@
         btn.disabled = true;
         btn.textContent = 'Verifying…';
     });
+    function copySecret() {
+        var text = document.getElementById('secretText').textContent.trim();
+        navigator.clipboard.writeText(text).then(function () {
+            var btn = document.getElementById('copyBtn');
+            btn.textContent = 'Copied!';
+            setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+        });
+    }
 </script>
 }

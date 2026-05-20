@@ -189,7 +189,9 @@
                                 <button class="btn btn-link btn-xs text-muted recategorize-btn p-0"
                                         data-id="@tx.Id"
                                         data-current="@((int)tx.Category)"
-                                        title="Change category"
+                                        data-description="@tx.Description"
+                                        data-amount="@tx.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
+                                        title="Edit transaction"
                                         style="font-size:1rem;line-height:1">&#9998;</button>
                             </td>
                         </tr>
@@ -237,25 +239,36 @@
     </div>
 }
 
-@* ── Recategorize modal ───────────────────────── *@
-<div class="modal fade" id="recatModal" tabindex="-1">
+@* ── Edit transaction modal ───────────────────── *@
+<div class="modal fade" id="editModal" tabindex="-1">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
             <div class="modal-header">
-                <h6 class="modal-title">Change Category</h6>
+                <h6 class="modal-title">Edit Transaction</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post" asp-controller="Spending" asp-action="Recategorize">
+            <form method="post" asp-controller="Spending" asp-action="EditTransaction">
                 @Html.AntiForgeryToken()
                 <input type="hidden" name="ym" value="@Model.MonthYm" />
-                <input type="hidden" name="id" id="recatId" />
-                <div class="modal-body">
-                    <select name="category" class="form-select" id="recatSelect">
-                        @foreach (var c in categories)
-                        {
-                            <option value="@((int)c)">@CatLabel(c)</option>
-                        }
-                    </select>
+                <input type="hidden" name="id" id="editId" />
+                <div class="modal-body" style="display:flex;flex-direction:column;gap:.75rem">
+                    <div>
+                        <label class="form-label" style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--tm)">Description</label>
+                        <input type="text" name="description" id="editDescription" class="form-control form-control-sm" maxlength="512" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--tm)">Amount ($)</label>
+                        <input type="number" name="amount" id="editAmount" class="form-control form-control-sm" step="0.01" min="0.01" />
+                    </div>
+                    <div>
+                        <label class="form-label" style="font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--tm)">Category</label>
+                        <select name="category" class="form-select form-select-sm" id="editCategory">
+                            @foreach (var c in categories)
+                            {
+                                <option value="@((int)c)">@CatLabel(c)</option>
+                            }
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
@@ -270,9 +283,11 @@
 <script>
 document.querySelectorAll('.recategorize-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
-        document.getElementById('recatId').value = btn.dataset.id;
-        document.getElementById('recatSelect').value = btn.dataset.current;
-        new bootstrap.Modal(document.getElementById('recatModal')).show();
+        document.getElementById('editId').value = btn.dataset.id;
+        document.getElementById('editDescription').value = btn.dataset.description || '';
+        document.getElementById('editAmount').value = btn.dataset.amount || '';
+        document.getElementById('editCategory').value = btn.dataset.current;
+        new bootstrap.Modal(document.getElementById('editModal')).show();
     });
 });
 </script>

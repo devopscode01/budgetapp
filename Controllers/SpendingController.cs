@@ -32,4 +32,20 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
         }
         return RedirectToAction(nameof(Index), new { ym });
     }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> EditTransaction(int id, string? description, decimal amount, ExpenseCategory category, string? ym, CancellationToken ct)
+    {
+        var tx = await spending.FindTransactionAsync(id, currentUser.UserId, ct).ConfigureAwait(false);
+        if (tx is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(description)) tx.Description = description.Trim();
+            if (amount > 0) tx.Amount = amount;
+            tx.Category = category;
+            tx.CategoryOverridden = true;
+            await spending.SaveAsync(ct).ConfigureAwait(false);
+        }
+        return RedirectToAction(nameof(Index), new { ym });
+    }
 }
