@@ -17,4 +17,7 @@ public sealed class BudgetUser
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime? ApprovedUtc { get; set; }
+
+    public string? TotpSecret { get; set; }
+    public bool TotpEnabled { get; set; }
 }

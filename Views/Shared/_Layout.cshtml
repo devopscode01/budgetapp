@@ -51,7 +51,7 @@
             {
                 <a class="nav-link" asp-controller="Admin" asp-action="Users" title="User management">Admin</a>
             }
-            <span class="nav-user">@(User.FindFirst("preferred_username")?.Value ?? User.Identity.Name)</span>
+            <a class="nav-user" asp-controller="Account" asp-action="Profile" title="Profile &amp; security">@(User.FindFirst("preferred_username")?.Value ?? User.Identity.Name)</a>
             <form method="post" asp-controller="Account" asp-action="Logout" class="d-inline">
                 @Html.AntiForgeryToken()
                 <button type="submit" class="theme-btn" title="Sign out">

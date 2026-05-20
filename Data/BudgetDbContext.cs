@@ -102,6 +102,8 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             "ALTER TABLE \"ManualExpenses\" ADD COLUMN \"UserId\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"Debts\" ADD COLUMN \"UserId\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"EtlRuns\" ADD COLUMN \"UserId\" TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE \"BudgetUsers\" ADD COLUMN \"TotpSecret\" TEXT NULL",
+            "ALTER TABLE \"BudgetUsers\" ADD COLUMN \"TotpEnabled\" INTEGER NOT NULL DEFAULT 0",
         })
         {
             try { await Database.ExecuteSqlRawAsync(sql, cancellationToken: ct).ConfigureAwait(false); }

@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OtpNet;
 
 namespace BudgetApp.Controllers;
 
@@ -17,8 +18,9 @@ public sealed class AccountController(
     IHttpClientFactory httpFactory,
     BudgetDbContext db) : Controller
 {
-    [HttpGet]
-    [AllowAnonymous]
+    // ── Login ─────────────────────────────────────────────────────────────────
+
+    [HttpGet, AllowAnonymous]
     public IActionResult Login(string? returnUrl = null)
     {
         if (User.Identity?.IsAuthenticated == true)
@@ -27,9 +29,7 @@ public sealed class AccountController(
         return View();
     }
 
-    [HttpPost]
-    [AllowAnonymous]
-    [ValidateAntiForgeryToken]
+    [HttpPost, AllowAnonymous, ValidateAntiForgeryToken]
     public async Task<IActionResult> Login(string username, string password, string? returnUrl, CancellationToken ct)
     {
         ViewBag.ReturnUrl = returnUrl;
@@ -59,7 +59,6 @@ public sealed class AccountController(
             using var client = httpFactory.CreateClient();
             var response = await client.PostAsync(tokenUrl, formData, ct).ConfigureAwait(false);
             body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-
             if (!response.IsSuccessStatusCode)
             {
                 ViewBag.Error = ParseKeycloakError(body);
@@ -72,7 +71,6 @@ public sealed class AccountController(
             return View();
         }
 
-        // Parse the access token — trusted source, no signature validation needed
         JwtSecurityToken jwt;
         try
         {
@@ -90,7 +88,6 @@ public sealed class AccountController(
         var preferredUsername = jwt.Claims.FirstOrDefault(c => c.Type == "preferred_username")?.Value ?? username;
         var email             = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? "";
 
-        // Provision user on first login; first ever user becomes admin
         var budgetUser = await db.BudgetUsers.FindAsync(new object[] { userId }, ct).ConfigureAwait(false);
         if (budgetUser is null)
         {
@@ -109,7 +106,34 @@ public sealed class AccountController(
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
-        // Build cookie identity
+        // 2FA verification
+        if (budgetUser.TotpEnabled && !string.IsNullOrEmpty(budgetUser.TotpSecret))
+        {
+            var otp = Request.Form["otp"].ToString().Trim();
+            if (string.IsNullOrEmpty(otp))
+            {
+                ViewBag.Error   = "Enter your authenticator code.";
+                ViewBag.Show2FA = true;
+                return View();
+            }
+            try
+            {
+                var totp = new Totp(Base32Encoding.ToBytes(budgetUser.TotpSecret));
+                if (!totp.VerifyTotp(otp, out _, new VerificationWindow(2, 2)))
+                {
+                    ViewBag.Error   = "Invalid authenticator code.";
+                    ViewBag.Show2FA = true;
+                    return View();
+                }
+            }
+            catch
+            {
+                ViewBag.Error   = "2FA verification failed. Contact your administrator.";
+                ViewBag.Show2FA = true;
+                return View();
+            }
+        }
+
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, userId),
@@ -118,7 +142,6 @@ public sealed class AccountController(
             new(ClaimTypes.Name,           preferredUsername),
         };
 
-        // Map Keycloak realm roles
         var realmAccess = jwt.Claims.FirstOrDefault(c => c.Type == "realm_access")?.Value;
         if (realmAccess is not null)
         {
@@ -130,7 +153,7 @@ public sealed class AccountController(
                         if (role.GetString() is { } r)
                             claims.Add(new Claim(ClaimTypes.Role, r));
             }
-            catch { /* ignore malformed realm_access */ }
+            catch { }
         }
 
         if (budgetUser.IsApproved) claims.Add(new Claim("budget_approved", "true"));
@@ -150,102 +173,244 @@ public sealed class AccountController(
             : Redirect("/Account/Pending");
     }
 
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    [Authorize]
+    // ── Logout ────────────────────────────────────────────────────────────────
+
+    [HttpPost, ValidateAntiForgeryToken, Authorize]
     public async Task<IActionResult> Logout()
     {
-        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme)
-            .ConfigureAwait(false);
+        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme).ConfigureAwait(false);
         return Redirect("/Account/Login");
     }
 
-    [HttpGet]
-    [AllowAnonymous]
+    // ── Register ──────────────────────────────────────────────────────────────
+
+    [HttpGet, AllowAnonymous]
     public IActionResult Register()
     {
-        if (User.Identity?.IsAuthenticated == true)
-            return Redirect("/");
+        if (User.Identity?.IsAuthenticated == true) return Redirect("/");
         return View();
     }
 
-    [HttpPost]
-    [AllowAnonymous]
-    [ValidateAntiForgeryToken]
+    [HttpPost, AllowAnonymous, ValidateAntiForgeryToken]
     public async Task<IActionResult> Register(
         string username, string firstName, string lastName,
         string email, string password, string confirmPassword,
         CancellationToken ct)
     {
-        if (password != confirmPassword)
-        {
-            ViewBag.Error = "Passwords do not match.";
-            return View();
-        }
-        if (password.Length < 8)
-        {
-            ViewBag.Error = "Password must be at least 8 characters.";
-            return View();
-        }
+        if (password != confirmPassword) { ViewBag.Error = "Passwords do not match."; return View(); }
+        if (password.Length < 8)        { ViewBag.Error = "Password must be at least 8 characters."; return View(); }
 
-        var kc       = config.GetSection("Keycloak");
+        var kc        = config.GetSection("Keycloak");
         var authority = kc["Authority"]!;
-        var adminUrl = authority.Contains("/realms/", StringComparison.Ordinal)
-            ? authority[..authority.IndexOf("/realms/", StringComparison.Ordinal)]
-            : authority;
-        var realm = authority.Contains("/realms/", StringComparison.Ordinal)
-            ? authority[(authority.IndexOf("/realms/", StringComparison.Ordinal) + 8)..].Split('/')[0]
-            : "budget";
+        var (adminUrl, realm) = SplitAuthority(authority);
 
-        var adminToken = await GetAdminTokenAsync(adminUrl, kc["AdminUsername"]!, kc["AdminPassword"]!, ct)
-            .ConfigureAwait(false);
-        if (adminToken is null)
-        {
-            ViewBag.Error = "Registration is temporarily unavailable. Try again later.";
-            return View();
-        }
+        var adminToken = await GetAdminTokenAsync(adminUrl, kc["AdminUsername"]!, kc["AdminPassword"]!, ct).ConfigureAwait(false);
+        if (adminToken is null) { ViewBag.Error = "Registration is temporarily unavailable."; return View(); }
 
         var payload = JsonSerializer.Serialize(new
         {
-            username,
-            firstName,
-            lastName,
-            email,
-            enabled        = true,
-            emailVerified  = true,
-            credentials    = new[] { new { type = "password", value = password, temporary = false } }
+            username, firstName, lastName, email,
+            enabled = true, emailVerified = true,
+            credentials = new[] { new { type = "password", value = password, temporary = false } }
         });
 
         using var client = httpFactory.CreateClient();
         var req = new HttpRequestMessage(HttpMethod.Post, $"{adminUrl}/admin/realms/{realm}/users")
         {
-            Headers  = { { "Authorization", $"Bearer {adminToken}" } },
-            Content  = new StringContent(payload, Encoding.UTF8, "application/json")
+            Headers = { { "Authorization", $"Bearer {adminToken}" } },
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
         };
         var response = await client.SendAsync(req, ct).ConfigureAwait(false);
 
         if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
-        {
-            ViewBag.Error = "That username or email is already in use.";
-            return View();
-        }
+        { ViewBag.Error = "That username or email is already in use."; return View(); }
         if (!response.IsSuccessStatusCode)
-        {
-            ViewBag.Error = "Registration failed. Please try again.";
-            return View();
-        }
+        { ViewBag.Error = "Registration failed. Please try again."; return View(); }
 
-        TempData["Notice"] = "Account created. Sign in and wait for administrator approval before you can access the app.";
+        TempData["Notice"] = "Account created. Sign in and wait for administrator approval.";
         return RedirectToAction(nameof(Login));
     }
 
-    [HttpGet]
-    [Authorize]
+    // ── Forgot Password ───────────────────────────────────────────────────────
+
+    [HttpGet, AllowAnonymous]
+    public IActionResult ForgotPassword() => View();
+
+    [HttpPost, AllowAnonymous, ValidateAntiForgeryToken]
+    public async Task<IActionResult> ForgotPassword(string username, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            var kc = config.GetSection("Keycloak");
+            var (adminUrl, realm) = SplitAuthority(kc["Authority"]!);
+            var adminToken = await GetAdminTokenAsync(adminUrl, kc["AdminUsername"]!, kc["AdminPassword"]!, ct).ConfigureAwait(false);
+            if (adminToken is not null)
+            {
+                try
+                {
+                    using var client = httpFactory.CreateClient();
+                    var search = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get,
+                        $"{adminUrl}/admin/realms/{realm}/users?username={Uri.EscapeDataString(username)}&exact=true")
+                    { Headers = { { "Authorization", $"Bearer {adminToken}" } } }, ct).ConfigureAwait(false);
+
+                    if (search.IsSuccessStatusCode)
+                    {
+                        using var doc = JsonDocument.Parse(await search.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+                        var users = doc.RootElement.EnumerateArray().ToList();
+                        if (users.Count > 0 && users[0].TryGetProperty("id", out var idEl))
+                        {
+                            await client.SendAsync(new HttpRequestMessage(HttpMethod.Put,
+                                $"{adminUrl}/admin/realms/{realm}/users/{idEl.GetString()}/execute-actions-email")
+                            {
+                                Headers = { { "Authorization", $"Bearer {adminToken}" } },
+                                Content = new StringContent("[\"UPDATE_PASSWORD\"]", Encoding.UTF8, "application/json")
+                            }, ct).ConfigureAwait(false);
+                        }
+                    }
+                }
+                catch { /* always show generic message */ }
+            }
+        }
+
+        TempData["Notice"] = "If that account exists and email is configured, a reset link has been sent. Otherwise, contact your administrator.";
+        return RedirectToAction(nameof(Login));
+    }
+
+    // ── Profile ───────────────────────────────────────────────────────────────
+
+    [HttpGet, Authorize]
+    public async Task<IActionResult> Profile(CancellationToken ct)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var user   = await db.BudgetUsers.FindAsync(new object[] { userId! }, ct).ConfigureAwait(false);
+        ViewBag.TotpEnabled = user?.TotpEnabled ?? false;
+        return View();
+    }
+
+    [HttpPost, Authorize, ValidateAntiForgeryToken]
+    public async Task<IActionResult> ChangePassword(
+        string currentPassword, string newPassword, string confirmPassword, CancellationToken ct)
+    {
+        if (newPassword != confirmPassword)
+        { TempData["PwError"] = "New passwords do not match."; return RedirectToAction(nameof(Profile)); }
+        if (newPassword.Length < 8)
+        { TempData["PwError"] = "Password must be at least 8 characters."; return RedirectToAction(nameof(Profile)); }
+
+        var kc = config.GetSection("Keycloak");
+        var (adminUrl, realm) = SplitAuthority(kc["Authority"]!);
+
+        // Verify current password
+        using var client = httpFactory.CreateClient();
+        var verify = await client.PostAsync(
+            $"{kc["Authority"]}/protocol/openid-connect/token",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "password", ["client_id"] = kc["ClientId"]!,
+                ["client_secret"] = kc["ClientSecret"]!,
+                ["username"] = User.FindFirst("preferred_username")?.Value ?? "",
+                ["password"] = currentPassword, ["scope"] = "openid"
+            }), ct).ConfigureAwait(false);
+
+        if (!verify.IsSuccessStatusCode)
+        { TempData["PwError"] = "Current password is incorrect."; return RedirectToAction(nameof(Profile)); }
+
+        var adminToken = await GetAdminTokenAsync(adminUrl, kc["AdminUsername"]!, kc["AdminPassword"]!, ct).ConfigureAwait(false);
+        if (adminToken is null)
+        { TempData["PwError"] = "Password change temporarily unavailable."; return RedirectToAction(nameof(Profile)); }
+
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var reset  = await client.SendAsync(new HttpRequestMessage(HttpMethod.Put,
+            $"{adminUrl}/admin/realms/{realm}/users/{userId}/reset-password")
+        {
+            Headers = { { "Authorization", $"Bearer {adminToken}" } },
+            Content = new StringContent(
+                JsonSerializer.Serialize(new { type = "password", value = newPassword, temporary = false }),
+                Encoding.UTF8, "application/json")
+        }, ct).ConfigureAwait(false);
+
+        TempData[reset.IsSuccessStatusCode ? "PwSuccess" : "PwError"] =
+            reset.IsSuccessStatusCode ? "Password updated successfully." : "Failed to update password. Try again.";
+        return RedirectToAction(nameof(Profile));
+    }
+
+    // ── 2FA Setup ─────────────────────────────────────────────────────────────
+
+    [HttpGet, Authorize]
+    public IActionResult Setup2FA()
+    {
+        var secret   = Base32Encoding.ToString(KeyGeneration.GenerateRandomKey(20));
+        var username = User.FindFirst("preferred_username")?.Value ?? "user";
+        ViewBag.Secret  = secret;
+        ViewBag.OtpAuth = $"otpauth://totp/Budget:{Uri.EscapeDataString(username)}?secret={secret}&issuer=Budget&algorithm=SHA1&digits=6&period=30";
+        return View();
+    }
+
+    [HttpPost, Authorize, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Setup2FA(string secret, string code, CancellationToken ct)
+    {
+        bool valid = false;
+        try
+        {
+            var totp = new Totp(Base32Encoding.ToBytes(secret));
+            valid = totp.VerifyTotp(code?.Trim() ?? "", out _, new VerificationWindow(2, 2));
+        }
+        catch { }
+
+        if (!valid)
+        {
+            var username = User.FindFirst("preferred_username")?.Value ?? "user";
+            ViewBag.Error   = "Invalid code — check your authenticator app and try again.";
+            ViewBag.Secret  = secret;
+            ViewBag.OtpAuth = $"otpauth://totp/Budget:{Uri.EscapeDataString(username)}?secret={secret}&issuer=Budget&algorithm=SHA1&digits=6&period=30";
+            return View();
+        }
+
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var user   = await db.BudgetUsers.FindAsync(new object[] { userId! }, ct).ConfigureAwait(false);
+        if (user is not null)
+        {
+            user.TotpSecret  = secret;
+            user.TotpEnabled = true;
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        TempData["TotpSuccess"] = "Two-factor authentication enabled.";
+        return RedirectToAction(nameof(Profile));
+    }
+
+    [HttpPost, Authorize, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Disable2FA(CancellationToken ct)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var user   = await db.BudgetUsers.FindAsync(new object[] { userId! }, ct).ConfigureAwait(false);
+        if (user is not null)
+        {
+            user.TotpSecret  = null;
+            user.TotpEnabled = false;
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        TempData["TotpSuccess"] = "Two-factor authentication disabled.";
+        return RedirectToAction(nameof(Profile));
+    }
+
+    // ── Status pages ──────────────────────────────────────────────────────────
+
+    [HttpGet, Authorize]
     public IActionResult Pending() => View();
 
-    [HttpGet]
-    [AllowAnonymous]
+    [HttpGet, AllowAnonymous]
     public IActionResult AccessDenied() => View();
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static (string adminUrl, string realm) SplitAuthority(string authority)
+    {
+        var idx    = authority.IndexOf("/realms/", StringComparison.Ordinal);
+        var admin  = idx >= 0 ? authority[..idx] : authority;
+        var realm  = idx >= 0 ? authority[(idx + 8)..].Split('/')[0] : "budget";
+        return (admin, realm);
+    }
 
     private async Task<string?> GetAdminTokenAsync(string adminUrl, string username, string password, CancellationToken ct)
     {
@@ -282,7 +447,7 @@ public sealed class AccountController(
                     return "Your account has been disabled.";
             }
         }
-        catch { /* fall through to default */ }
+        catch { }
         return "Invalid username or password.";
     }
 }

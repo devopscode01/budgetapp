@@ -1,0 +1,125 @@
+@{
+    ViewData["Title"] = "Enable 2FA";
+    var error = ViewBag.Error as string;
+}
+
+<style>
+    .setup-page { max-width: 460px; margin: 2rem auto; padding: 0 1rem; }
+    .setup-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-md);
+        padding: 1.75rem 2rem;
+    }
+    .setup-title { font-size: 1rem; font-weight: 700; color: var(--t1); margin: 0 0 .5rem; }
+    .setup-sub   { font-size: .875rem; color: var(--tm); margin-bottom: 1.5rem; }
+    .qr-wrap     { display: flex; justify-content: center; margin-bottom: 1.25rem; }
+    .qr-wrap img { border-radius: var(--radius-sm); }
+    .secret-box  {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: .6rem .85rem;
+        font-family: monospace;
+        font-size: .85rem;
+        color: var(--t1);
+        word-break: break-all;
+        margin-bottom: 1.5rem;
+        text-align: center;
+    }
+    .field-label {
+        display: block;
+        font-size: .75rem;
+        font-weight: 600;
+        color: var(--tm);
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        margin-bottom: .35rem;
+    }
+    .field-input {
+        display: block;
+        width: 100%;
+        padding: .55rem .8rem;
+        font-size: 1.1rem;
+        letter-spacing: .2em;
+        text-align: center;
+        background: var(--surface-2);
+        color: var(--t1);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition: border-color var(--transition), box-shadow var(--transition);
+        box-sizing: border-box;
+        margin-bottom: .9rem;
+    }
+    .field-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-subtle); }
+    .btn-primary {
+        display: block; width: 100%; padding: .65rem;
+        background: var(--brand); color: #fff; border: none;
+        border-radius: var(--radius-sm); font-size: .95rem; font-weight: 600;
+        cursor: pointer; transition: opacity var(--transition);
+    }
+    .btn-primary:hover:not(:disabled) { opacity: .88; }
+    .btn-primary:disabled { opacity: .55; cursor: default; }
+    .msg-error { color: var(--red); font-size: .85rem; text-align: center; margin-top: .6rem; }
+    .steps { font-size: .875rem; color: var(--tm); margin-bottom: 1.25rem; padding-left: 1.25rem; }
+    .steps li { margin-bottom: .4rem; }
+    .back-link { display: block; text-align: center; margin-top: 1rem; font-size: .85rem; color: var(--brand); text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+</style>
+
+<div class="setup-page">
+    <div class="setup-card">
+        <p class="setup-title">Enable Two-Factor Authentication</p>
+        <p class="setup-sub">Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
+
+        <div class="qr-wrap">
+            <div id="qrcode"></div>
+        </div>
+
+        <p style="font-size:.8rem;color:var(--tm);text-align:center;margin-bottom:.35rem">Can't scan? Enter this code manually:</p>
+        <div class="secret-box">@ViewBag.Secret</div>
+
+        <ol class="steps">
+            <li>Open your authenticator app</li>
+            <li>Tap <strong>+</strong> or <strong>Add account</strong></li>
+            <li>Scan the QR code above</li>
+            <li>Enter the 6-digit code shown in the app below</li>
+        </ol>
+
+        <form method="post" asp-action="Setup2FA" asp-controller="Account" id="setup2faForm">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="secret" value="@ViewBag.Secret" />
+            <label class="field-label" for="code">Verification code</label>
+            <input class="field-input" id="code" name="code" type="text"
+                   inputmode="numeric" autocomplete="one-time-code"
+                   maxlength="6" placeholder="000000" autofocus />
+            <button class="btn-primary" type="submit" id="submitBtn">Verify and enable</button>
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <p class="msg-error">@error</p>
+            }
+        </form>
+
+        <a class="back-link" href="/Account/Profile">Cancel</a>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+        integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSr7FrrA/C8S4pHD0pn/biGBQab4Z49dBEqA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+    new QRCode(document.getElementById('qrcode'), {
+        text: '@Html.Raw(ViewBag.OtpAuth)',
+        width: 200,
+        height: 200
+    });
+    document.getElementById('setup2faForm').addEventListener('submit', function () {
+        var btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.textContent = 'Verifying…';
+    });
+</script>
+}
