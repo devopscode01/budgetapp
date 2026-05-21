@@ -255,9 +255,9 @@ public sealed class BillsApiController(
 
         var prompt = BuildPrompt(today, summary, debts, assets, bills, monthKey);
 
-        var insight = await llm.AnalyzeAsync(cfg, prompt, ct).ConfigureAwait(false);
+        var (insight, error) = await llm.AnalyzeAsync(cfg, prompt, ct).ConfigureAwait(false);
         if (insight is null)
-            return StatusCode(502, new { error = "LLM returned no response" });
+            return StatusCode(502, new { error = error ?? "LLM returned no response" });
 
         return Ok(new LlmInsightResponse(insight, DateTime.UtcNow.ToString("o")));
     }

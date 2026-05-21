@@ -6,20 +6,21 @@ namespace BudgetApp.Services;
 
 public sealed class LlmService(IHttpClientFactory httpFactory, ILogger<LlmService> logger)
 {
-    public async Task<string?> AnalyzeAsync(LlmConfig config, string prompt, CancellationToken ct)
+    public async Task<(string? Content, string? Error)> AnalyzeAsync(LlmConfig config, string prompt, CancellationToken ct)
     {
         try
         {
-            return (LlmProvider)config.Provider switch
+            var content = (LlmProvider)config.Provider switch
             {
                 LlmProvider.Gemini => await CallGeminiAsync(config, prompt, ct),
                 _                  => await CallOpenAiCompatibleAsync(config, prompt, ct),
             };
+            return (content, null);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "LLM call failed ({Provider})", (LlmProvider)config.Provider);
-            return null;
+            return (null, ex.Message);
         }
     }
 
@@ -37,12 +38,15 @@ public sealed class LlmService(IHttpClientFactory httpFactory, ILogger<LlmServic
         });
 
         using var http = httpFactory.CreateClient();
-        if ((LlmProvider)config.Provider == LlmProvider.OpenAI && !string.IsNullOrEmpty(config.ApiKey))
+        if (!string.IsNullOrEmpty(config.ApiKey))
             http.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.ApiKey}");
 
         var resp = await http.PostAsync($"{baseUrl}/chat/completions",
             new StringContent(body, Encoding.UTF8, "application/json"), ct).ConfigureAwait(false);
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"Provider returned {(int)resp.StatusCode}: {json}");
 
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement
@@ -64,6 +68,9 @@ public sealed class LlmService(IHttpClientFactory httpFactory, ILogger<LlmServic
         var resp = await http.PostAsync(url,
             new StringContent(body, Encoding.UTF8, "application/json"), ct).ConfigureAwait(false);
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"Gemini returned {(int)resp.StatusCode}: {json}");
 
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement

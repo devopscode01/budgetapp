@@ -37,6 +37,9 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
+    networks:
+      - default
+      - ollama-net
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -44,4 +47,10 @@ services:
     restart: unless-stopped
     depends_on:
       - budget
+
+networks:
+  default:
+  ollama-net:
+    external: true
+    name: thenotebook_notebook-network
 
