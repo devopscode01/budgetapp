@@ -41,6 +41,7 @@ builder.Services.AddScoped<PdfTextExtractor>();
 builder.Services.AddScoped<ExpenseClassifier>();
 builder.Services.AddScoped<BudgetEtlService>();
 builder.Services.AddScoped<SpendingService>();
+builder.Services.AddScoped<LlmService>();
 builder.Services.AddHttpClient();
 
 // Persist data protection keys to the Data volume so cookies survive container restarts

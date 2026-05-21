@@ -12,6 +12,9 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
     public DbSet<BudgetUser> BudgetUsers => Set<BudgetUser>();
     public DbSet<Asset> Assets => Set<Asset>();
     public DbSet<Invitation> Invitations => Set<Invitation>();
+    public DbSet<BillAlert> BillAlerts => Set<BillAlert>();
+    public DbSet<BillPayment> BillPayments => Set<BillPayment>();
+    public DbSet<LlmConfig> LlmConfigs => Set<LlmConfig>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +85,34 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.InvitedByName).HasMaxLength(256);
             e.Property(x => x.UsedByDisplayName).HasMaxLength(256);
         });
+
+        modelBuilder.Entity<BillAlert>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.UserId).HasMaxLength(128);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Notes).HasMaxLength(1000);
+            e.Property(x => x.AddedByName).HasMaxLength(256);
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.HasOne(x => x.LinkedDebt).WithMany().HasForeignKey(x => x.LinkedDebtId).IsRequired(false);
+            e.HasMany(x => x.Payments).WithOne(x => x.Bill).HasForeignKey(x => x.BillAlertId);
+        });
+
+        modelBuilder.Entity<BillPayment>(e =>
+        {
+            e.HasIndex(x => new { x.BillAlertId, x.Month }).IsUnique();
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.AcknowledgedByName).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<LlmConfig>(e =>
+        {
+            e.HasIndex(x => x.UserId).IsUnique();
+            e.Property(x => x.UserId).HasMaxLength(128);
+            e.Property(x => x.Endpoint).HasMaxLength(500);
+            e.Property(x => x.ApiKey).HasMaxLength(500);
+            e.Property(x => x.Model).HasMaxLength(100);
+        });
     }
 
     public async Task EnsureSchemaAsync(CancellationToken ct = default)
@@ -145,6 +176,59 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
                 "IsUsed" INTEGER NOT NULL DEFAULT 0,
                 "UsedAt" TEXT NULL,
                 "UsedByDisplayName" TEXT NOT NULL DEFAULT ''
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // BillAlerts table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "BillAlerts" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_BillAlerts" PRIMARY KEY AUTOINCREMENT,
+                "UserId" TEXT NOT NULL DEFAULT '',
+                "Name" TEXT NOT NULL DEFAULT '',
+                "Amount" TEXT NULL,
+                "DayOfMonth" INTEGER NOT NULL DEFAULT 1,
+                "LinkedDebtId" INTEGER NULL,
+                "IsActive" INTEGER NOT NULL DEFAULT 1,
+                "Notes" TEXT NOT NULL DEFAULT '',
+                "AddedByName" TEXT NOT NULL DEFAULT '',
+                "CreatedUtc" TEXT NOT NULL DEFAULT ''
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // BillPayments table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "BillPayments" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_BillPayments" PRIMARY KEY AUTOINCREMENT,
+                "BillAlertId" INTEGER NOT NULL,
+                "Month" TEXT NOT NULL DEFAULT '',
+                "Amount" TEXT NOT NULL DEFAULT '0',
+                "AcknowledgedUtc" TEXT NOT NULL DEFAULT '',
+                "AcknowledgedByName" TEXT NOT NULL DEFAULT '',
+                "DebtDeducted" INTEGER NOT NULL DEFAULT 0,
+                CONSTRAINT "FK_BillPayments_BillAlerts" FOREIGN KEY ("BillAlertId") REFERENCES "BillAlerts" ("Id") ON DELETE CASCADE
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // Unique index on BillPayments (one payment per bill per month)
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_BillPayments_BillAlertId_Month"
+            ON "BillPayments" ("BillAlertId", "Month");
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // LlmConfigs table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "LlmConfigs" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_LlmConfigs" PRIMARY KEY AUTOINCREMENT,
+                "UserId" TEXT NOT NULL DEFAULT '',
+                "Provider" INTEGER NOT NULL DEFAULT 0,
+                "Endpoint" TEXT NOT NULL DEFAULT 'http://localhost:11434',
+                "ApiKey" TEXT NOT NULL DEFAULT '',
+                "Model" TEXT NOT NULL DEFAULT 'llama3.2',
+                "IsEnabled" INTEGER NOT NULL DEFAULT 0
             );
             """, cancellationToken: ct).ConfigureAwait(false);
 

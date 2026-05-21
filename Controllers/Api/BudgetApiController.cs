@@ -37,13 +37,14 @@ public record ApiNetWorth(decimal TotalAssets, decimal TotalDebts, decimal NetWo
 public record AddDebtRequest(string CreditorName, int Type, decimal Balance,
     decimal MinPayment, decimal InterestRate, string? DueDate, string? Notes);
 
-public record UpdateDebtRequest(decimal Balance, decimal MinPayment, decimal InterestRate,
+public record UpdateDebtRequest(string? CreditorName, decimal Balance, decimal MinPayment, decimal InterestRate,
     string? DueDate, string? Notes);
 
 public record AddAssetRequest(string Name, int Type, decimal Value, string? Notes);
-public record UpdateAssetRequest(decimal Value, string? Notes);
+public record UpdateAssetRequest(string? Name, decimal Value, string? Notes);
 
 public record AddManualRequest(string Description, decimal Amount, int Category, string? Ym);
+public record UpdateTransactionRequest(string? Description, decimal Amount, int Category);
 
 // ── Controller ────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,22 @@ public sealed class BudgetApiController(
             vm.TotalIncome, vm.TotalSpend, catDtos, txDtos));
     }
 
+    [HttpPut("transactions/{id:int}")]
+    public async Task<IActionResult> UpdateTransaction(int id, [FromBody] UpdateTransactionRequest req, CancellationToken ct)
+    {
+        var (hids, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        var tx = await spending.FindTransactionAsync(id, hids, ct).ConfigureAwait(false);
+        if (tx is null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(req.Description)) tx.Description = req.Description.Trim();
+        if (req.Amount > 0) tx.Amount = req.Amount;
+        tx.Category = (ExpenseCategory)req.Category;
+        tx.CategoryOverridden = true;
+        await spending.SaveAsync(ct).ConfigureAwait(false);
+        return Ok(new ApiTransaction(tx.Id, tx.PostedDate.ToString("yyyy-MM-dd"), tx.Description,
+            tx.Category.ToString(), CatColor(tx.Category), tx.Amount));
+    }
+
     [HttpDelete("transactions/{id:int}")]
     public async Task<IActionResult> DeleteTransaction(int id, CancellationToken ct)
     {
@@ -219,6 +236,7 @@ public sealed class BudgetApiController(
         var debt = await db.Debts.FirstOrDefaultAsync(d => d.Id == id && hids.Contains(d.UserId), ct)
             .ConfigureAwait(false);
         if (debt is null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(req.CreditorName)) debt.CreditorName = req.CreditorName.Trim();
         debt.Balance = req.Balance;
         debt.MinimumPayment = req.MinPayment;
         debt.InterestRate = req.InterestRate;
@@ -290,6 +308,7 @@ public sealed class BudgetApiController(
         var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == id && hids.Contains(a.UserId), ct)
             .ConfigureAwait(false);
         if (asset is null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(req.Name)) asset.Name = req.Name.Trim();
         asset.Value = req.Value;
         asset.Notes = req.Notes?.Trim() ?? asset.Notes;
         asset.UpdatedUtc = DateTime.UtcNow;
