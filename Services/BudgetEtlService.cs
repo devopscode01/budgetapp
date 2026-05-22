@@ -315,6 +315,10 @@ public sealed class BudgetEtlService(
 
             run.Success = true;
             run.Log = ClampForEtlRunLog(log.ToString());
+
+            // Auto-match newly inserted transactions against active bills
+            if (run.TransactionsInserted > 0)
+                await AutoMatchBillsAsync(userId, log, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -447,6 +451,62 @@ public sealed class BudgetEtlService(
                 return new DateOnly(year, m, 1);
         }
         return null;
+    }
+
+    private async Task AutoMatchBillsAsync(string userId, StringBuilder log, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var monthKey = new DateOnly(today.Year, today.Month, 1);
+
+        var bills = await db.BillAlerts
+            .Where(b => b.UserId == userId && b.IsActive)
+            .Include(b => b.Payments.Where(p => p.Month == monthKey))
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        if (bills.Count == 0) return;
+
+        var recentTxs = await db.ParsedTransactions
+            .Where(t => t.UserId == userId && t.PostedDate >= monthKey && t.PostedDate < monthKey.AddMonths(1))
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        foreach (var bill in bills)
+        {
+            if (bill.Payments.Any(p => p.Month == monthKey)) continue;
+
+            var billNorm = bill.Name.ToLowerInvariant().Replace(" ", "");
+            var matched = recentTxs.FirstOrDefault(t =>
+            {
+                var desc = (t.Alias ?? t.Description).ToLowerInvariant().Replace(" ", "");
+                return desc.Contains(billNorm) || billNorm.Contains(desc[..Math.Min(desc.Length, 8)]);
+            });
+
+            if (matched is null) continue;
+
+            var amount = bill.Amount ?? matched.Amount;
+            var deductedDebt = false;
+
+            if (bill.LinkedDebtId.HasValue && amount > 0)
+            {
+                var debt = await db.Debts.FindAsync(new object[] { bill.LinkedDebtId.Value }, ct).ConfigureAwait(false);
+                if (debt is not null && debt.UserId == userId)
+                {
+                    debt.Balance = Math.Max(0, debt.Balance - amount);
+                    debt.UpdatedUtc = DateTime.UtcNow;
+                    deductedDebt = true;
+                }
+            }
+
+            db.BillPayments.Add(new BillPayment
+            {
+                BillAlertId        = bill.Id,
+                Month              = monthKey,
+                Amount             = amount,
+                AcknowledgedByName = "Auto-matched from statement",
+                DebtDeducted       = deductedDebt,
+            });
+
+            log.AppendLine($"Auto-matched bill \"{bill.Name}\" to transaction \"{matched.Description}\" (${amount:F2})");
+        }
     }
 
     private static string ClampForParsedDescription(string description)

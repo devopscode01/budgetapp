@@ -246,6 +246,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             "ALTER TABLE \"ManualExpenses\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"Debts\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"Assets\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE \"ParsedTransactions\" ADD COLUMN \"Alias\" TEXT NULL",
         })
         {
             try { await Database.ExecuteSqlRawAsync(sql, cancellationToken: ct).ConfigureAwait(false); }

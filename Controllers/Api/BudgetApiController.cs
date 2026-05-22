@@ -20,11 +20,14 @@ public record RefreshRequest(string RefreshToken);
 public record ApiMonthSummary(
     string MonthYm, string MonthLabel,
     decimal TotalIncome, decimal TotalSpend,
+    decimal PrevIncome, decimal PrevSpend,
     IReadOnlyList<ApiCategory> Categories,
     IReadOnlyList<ApiTransaction> Transactions);
 
 public record ApiCategory(string Name, string Color, decimal Amount, int Count, int Pct);
-public record ApiTransaction(int Id, string Date, string Description, string Category, string Color, decimal Amount);
+
+// Description = display name (alias if set, else original). OriginalDescription = raw bank text (null for manual).
+public record ApiTransaction(int Id, string Date, string Description, string? OriginalDescription, string Category, string Color, decimal Amount);
 
 public record ApiDebt(int Id, string CreditorName, string Type, decimal Balance,
     decimal MinPayment, decimal InterestRate, string? DueDate, string Notes, bool IsActive, string AddedByName);
@@ -44,7 +47,8 @@ public record AddAssetRequest(string Name, int Type, decimal Value, string? Note
 public record UpdateAssetRequest(string? Name, decimal Value, string? Notes);
 
 public record AddManualRequest(string Description, decimal Amount, int Category, string? Ym);
-public record UpdateTransactionRequest(string? Description, decimal Amount, int Category);
+public record UpdateTransactionRequest(string? Description, decimal Amount, int Category, string? Alias = null);
+public record SuggestAliasResponse(string Suggestion);
 
 // ── Controller ────────────────────────────────────────────────────────────────
 
@@ -58,6 +62,7 @@ public sealed class BudgetApiController(
     IConfiguration config,
     IHttpClientFactory httpFactory,
     ILogger<BudgetApiController> logger,
+    LlmService llm,
     BudgetEtlService etl) : ControllerBase
 {
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -145,8 +150,13 @@ public sealed class BudgetApiController(
         var month = MonthHelper.ParseMonth(ym);
         var vm = await spending.GetMonthAsync(month, hids, ct).ConfigureAwait(false);
 
-        var txDtos = vm.Transactions.Take(50).Select(t => new ApiTransaction(
-            t.Id, t.PostedDate.ToString("yyyy-MM-dd"), t.Description,
+        // Previous month for delta comparison
+        var prevVm = await spending.GetMonthAsync(month.AddMonths(-1), hids, ct).ConfigureAwait(false);
+
+        var txDtos = vm.Transactions.Take(200).Select(t => new ApiTransaction(
+            t.Id, t.PostedDate.ToString("yyyy-MM-dd"),
+            t.Alias ?? t.Description,
+            t.Alias != null ? t.Description : null,
             t.Category.ToString(), CatColor(t.Category), t.Amount)).ToList();
 
         var total = vm.TotalSpend > 0 ? vm.TotalSpend : 1m;
@@ -158,7 +168,7 @@ public sealed class BudgetApiController(
                 (int)Math.Round(c.Amount / total * 100))).ToList();
 
         return Ok(new ApiMonthSummary(vm.MonthYm, vm.MonthLabel,
-            vm.TotalIncome, vm.TotalSpend, catDtos, txDtos));
+            vm.TotalIncome, vm.TotalSpend, prevVm.TotalIncome, prevVm.TotalSpend, catDtos, txDtos));
     }
 
     [HttpPut("transactions/{id:int}")]
@@ -168,13 +178,36 @@ public sealed class BudgetApiController(
         if (!ok) return Forbid();
         var tx = await spending.FindTransactionAsync(id, hids, ct).ConfigureAwait(false);
         if (tx is null) return NotFound();
-        if (!string.IsNullOrWhiteSpace(req.Description)) tx.Description = req.Description.Trim();
+        // Alias is the user-friendly display name; Description stays as original bank text
+        tx.Alias = string.IsNullOrWhiteSpace(req.Alias) ? null : req.Alias.Trim();
         if (req.Amount > 0) tx.Amount = req.Amount;
         tx.Category = (ExpenseCategory)req.Category;
         tx.CategoryOverridden = true;
         await spending.SaveAsync(ct).ConfigureAwait(false);
-        return Ok(new ApiTransaction(tx.Id, tx.PostedDate.ToString("yyyy-MM-dd"), tx.Description,
+        var display = tx.Alias ?? tx.Description;
+        return Ok(new ApiTransaction(tx.Id, tx.PostedDate.ToString("yyyy-MM-dd"), display,
+            tx.Alias != null ? tx.Description : null,
             tx.Category.ToString(), CatColor(tx.Category), tx.Amount));
+    }
+
+    [HttpPost("transactions/{id:int}/suggest-alias")]
+    public async Task<IActionResult> SuggestAlias(int id, CancellationToken ct)
+    {
+        var (hids, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        var tx = await spending.FindTransactionAsync(id, hids, ct).ConfigureAwait(false);
+        if (tx is null) return NotFound();
+
+        var cfg = await db.LlmConfigs.FirstOrDefaultAsync(c => c.UserId == currentUser.UserId, ct).ConfigureAwait(false);
+        if (cfg is null || !cfg.IsEnabled)
+            return BadRequest(new { error = "AI advisor not configured" });
+
+        var prompt = $"Given this bank transaction description, return only a short readable name (2-5 words, title case). No explanation, just the name.\nTransaction: \"{tx.Description}\"";
+        var (suggestion, error) = await llm.AnalyzeAsync(cfg, prompt, ct).ConfigureAwait(false);
+        if (suggestion is null)
+            return StatusCode(502, new { error = error ?? "LLM returned no response" });
+
+        return Ok(new SuggestAliasResponse(suggestion.Trim().Trim('"')));
     }
 
     [HttpDelete("transactions/{id:int}")]

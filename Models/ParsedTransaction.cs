@@ -24,4 +24,7 @@ public sealed class ParsedTransaction
     public string DedupeHash { get; set; } = string.Empty;
 
     public bool CategoryOverridden { get; set; }
+
+    /// <summary>User-assigned readable alias (e.g. "Atmos Energy Gas"). Null = use Description for display.</summary>
+    public string? Alias { get; set; }
 }
