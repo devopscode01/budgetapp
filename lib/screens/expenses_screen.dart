@@ -53,6 +53,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
+    _loadCategories(); // refresh categories in background on every reload
     try {
       final months = await widget.api.getMonths();
       final ym = _selectedYm ?? (months.isNotEmpty ? months.first : null);
