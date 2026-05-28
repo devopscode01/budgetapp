@@ -5,6 +5,7 @@ import 'package:intl/intl.dart' as intl_lib;
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'ocr_import_sheet.dart';
 
 final _usd = intl_lib.NumberFormat.currency(locale: 'en_US', symbol: '\$');
 
@@ -178,8 +179,74 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   void _showImport() {
     showCupertinoModalPopup<void>(
       context: context,
-      builder: (ctx) => _ImportSheet(api: widget.api, ym: _selectedYm, onDone: _load),
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('Import Transactions'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              showCupertinoModalPopup<void>(
+                context: context,
+                builder: (_) => _ImportSheet(api: widget.api, ym: _selectedYm, onDone: _load),
+              );
+            },
+            child: const Text('Upload PDF Statement'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () { Navigator.pop(ctx); _importTxt(); },
+            child: const Text('Import .txt Statement'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                CupertinoPageRoute(builder: (_) => OcrImportSheet(api: widget.api)),
+              ).then((_) => _load());
+            },
+            child: const Text('Scan Statement (Camera / Photo)'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+      ),
     );
+  }
+
+  Future<void> _importTxt() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['txt'],
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty || result.files.first.path == null) return;
+    try {
+      final res = await widget.api.importTxt(File(result.files.first.path!));
+      final inserted = res['inserted'] as int? ?? 0;
+      final skipped  = res['skipped']  as int? ?? 0;
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (d) => CupertinoAlertDialog(
+          title: const Text('Import Complete'),
+          content: Text('$inserted transaction(s) added\n$skipped duplicate(s) skipped'),
+          actions: [CupertinoDialogAction(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+        ),
+      );
+      if (inserted > 0) _load();
+    } catch (e) {
+      if (!mounted) return;
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (d) => CupertinoAlertDialog(
+          title: const Text('Import Failed'),
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          actions: [CupertinoDialogAction(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+        ),
+      );
+    }
   }
 
   @override
