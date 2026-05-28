@@ -244,6 +244,19 @@ class ApiService {
       });
 
   // Import
+  Future<Map<String, dynamic>> importTxt(File file) async {
+    final token = await auth.getValidAccessToken();
+    if (token == null) throw ApiException(401, 'Not authenticated');
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/import/txt'))
+      ..headers['Authorization'] = 'Bearer $token'
+      ..files.add(await http.MultipartFile.fromPath('file', file.path,
+          filename: file.path.split('/').last));
+    final streamed = await request.send();
+    final body = await streamed.stream.bytesToString();
+    if (streamed.statusCode >= 400) throw ApiException(streamed.statusCode, body);
+    return jsonDecode(body) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> uploadPdf(File file) async {
     final token = await auth.getValidAccessToken();
     if (token == null) throw ApiException(401, 'Not authenticated');
