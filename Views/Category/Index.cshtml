@@ -1,0 +1,187 @@
+@model List<BudgetApp.Models.UserCategory>
+@{
+    ViewData["Title"] = "Categories";
+    var builtIns = (IReadOnlyList<(int Id, string Name, string Color)>)ViewBag.BuiltIns;
+}
+
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">Categories</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">Manage custom categories for classifying your transactions</p>
+    </div>
+    <a asp-controller="Dashboard" asp-action="Index" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+@* ── Add Custom Category ───────────────────────────────────── *@
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="section-title">Add Custom Category</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                Custom categories get IDs starting at 100. Keywords are comma-separated words for auto-classification during import.
+            </p>
+            <form method="post" asp-action="Create">
+                @Html.AntiForgeryToken()
+                <div class="mb-3">
+                    <label class="form-label">Name</label>
+                    <input name="name" type="text" class="form-control"
+                           placeholder="e.g. Pet Supplies" required maxlength="200" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Color</label>
+                    <div class="d-flex gap-2 align-items-center">
+                        <input name="color" type="color" class="form-control form-control-color"
+                               value="#6366F1" style="width:48px;height:38px;padding:2px;cursor:pointer" />
+                        <small style="color:var(--tm)">Pick a colour for this category</small>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Keywords <small style="color:var(--tm)">(comma-separated)</small></label>
+                    <input name="keywords" type="text" class="form-control"
+                           placeholder="e.g. petco, petsmart, chewy" maxlength="2000" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Sort Order</label>
+                    <input name="sortOrder" type="number" class="form-control" value="0" min="0" />
+                </div>
+                <button type="submit" class="btn btn-primary w-100">+ Add Category</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="section-title mb-3">Your Custom Categories</div>
+            @if (!Model.Any())
+            {
+                <p style="font-size:.875rem;color:var(--tm)">No custom categories yet. Add one on the left.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table budget-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Color</th>
+                                <th>Keywords</th>
+                                <th class="text-center">Order</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var cat in Model)
+                            {
+                                <tr id="row-@cat.Id">
+                                    <td class="fw-medium">
+                                        <span class="cat-badge"
+                                              style="background:@cat.Color;display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle"></span>
+                                        @cat.Name
+                                        <small style="color:var(--tf);margin-left:4px">#@cat.Id</small>
+                                    </td>
+                                    <td>
+                                        <span style="font-family:monospace;font-size:.8rem">@cat.Color</span>
+                                    </td>
+                                    <td>
+                                        <small style="color:var(--tf)">
+                                            @(string.IsNullOrWhiteSpace(cat.Keywords) ? "—" : cat.Keywords)
+                                        </small>
+                                    </td>
+                                    <td class="text-center">@cat.SortOrder</td>
+                                    <td>
+                                        <div class="d-flex gap-1 justify-content-end">
+                                            <button class="btn btn-link btn-xs p-0"
+                                                    onclick="openEdit(@cat.Id, '@Html.Raw(cat.Name.Replace("'","\\\'"))', '@cat.Color', '@Html.Raw(cat.Keywords.Replace("'","\\\'"))', @cat.SortOrder)"
+                                                    title="Edit">&#9998;</button>
+                                            <form method="post" asp-action="Delete" class="d-inline">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="id" value="@cat.Id" />
+                                                <button type="submit" class="btn btn-link btn-xs text-danger p-0"
+                                                        onclick="return confirm('Delete category \'@cat.Name\'?')"
+                                                        title="Delete">&#10005;</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<hr style="border-color:var(--border);margin:1.5rem 0" />
+
+@* ── Built-in Categories (read-only) ──────────────────────── *@
+<div class="card">
+    <div class="section-title mb-3">Built-in Categories <small style="color:var(--tm);font-weight:400">(read-only)</small></div>
+    <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 g-2">
+        @foreach (var bi in builtIns)
+        {
+            <div class="col">
+                <div class="d-flex align-items-center gap-2 p-2"
+                     style="background:var(--card-bg);border-radius:8px;border:1px solid var(--border)">
+                    <span style="width:12px;height:12px;border-radius:50%;background:@bi.Color;flex-shrink:0"></span>
+                    <span style="font-size:.825rem">@bi.Name</span>
+                    <span style="font-size:.725rem;color:var(--tf);margin-left:auto">#@bi.Id</span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@* ── Edit Modal ────────────────────────────────────────────── *@
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-action="Edit" id="editForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" id="editId" />
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Category</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input name="name" id="editName" type="text" class="form-control" required maxlength="200" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Color</label>
+                        <input name="color" id="editColor" type="color"
+                               class="form-control form-control-color"
+                               style="width:48px;height:38px;padding:2px;cursor:pointer" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Keywords <small style="color:var(--tm)">(comma-separated)</small></label>
+                        <input name="keywords" id="editKeywords" type="text" class="form-control" maxlength="2000" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sort Order</label>
+                        <input name="sortOrder" id="editSortOrder" type="number" class="form-control" min="0" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+function openEdit(id, name, color, keywords, sortOrder) {
+    document.getElementById('editId').value        = id;
+    document.getElementById('editName').value      = name;
+    document.getElementById('editColor').value     = color;
+    document.getElementById('editKeywords').value  = keywords;
+    document.getElementById('editSortOrder').value = sortOrder;
+    var modal = new bootstrap.Modal(document.getElementById('editModal'));
+    modal.show();
+}
+</script>
+}

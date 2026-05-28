@@ -15,6 +15,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
     public DbSet<BillAlert> BillAlerts => Set<BillAlert>();
     public DbSet<BillPayment> BillPayments => Set<BillPayment>();
     public DbSet<LlmConfig> LlmConfigs => Set<LlmConfig>();
+    public DbSet<UserCategory> UserCategories => Set<UserCategory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -112,6 +113,15 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Endpoint).HasMaxLength(500);
             e.Property(x => x.ApiKey).HasMaxLength(500);
             e.Property(x => x.Model).HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<UserCategory>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.UserId).HasMaxLength(128);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Color).HasMaxLength(20);
+            e.Property(x => x.Keywords).HasMaxLength(2000);
         });
     }
 
@@ -230,6 +240,28 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
                 "Model" TEXT NOT NULL DEFAULT 'llama3.2',
                 "IsEnabled" INTEGER NOT NULL DEFAULT 0
             );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // UserCategories table (IDs start at 100 to avoid colliding with built-in enum values 0–15)
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "UserCategories" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_UserCategories" PRIMARY KEY AUTOINCREMENT,
+                "UserId" TEXT NOT NULL DEFAULT '',
+                "Name" TEXT NOT NULL DEFAULT '',
+                "Color" TEXT NOT NULL DEFAULT '#6366F1',
+                "Keywords" TEXT NOT NULL DEFAULT '',
+                "SortOrder" INTEGER NOT NULL DEFAULT 0
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
+        // Ensure user category IDs are always ≥ 100 by inserting a dummy row if the table is empty
+        await Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO sqlite_sequence (name, seq)
+            SELECT 'UserCategories', 99
+            WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'UserCategories')
+              AND (SELECT COUNT(*) FROM "UserCategories") = 0;
             """, cancellationToken: ct).ConfigureAwait(false);
 
         // Additive column migrations — SQLite doesn't support IF NOT EXISTS for ADD COLUMN,

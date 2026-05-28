@@ -437,9 +437,30 @@ public sealed class BudgetEtlService(
                 .Select(t => (ExpenseCategory?)t.Category)
                 .FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
+            // User-defined category keyword matching (runs before default classifier)
+            ExpenseCategory? userCatMatch = null;
+            if (!isIncome && learnedCat is null)
+            {
+                var userCats = await db.UserCategories
+                    .Where(c => c.UserId == userId && c.Keywords != "")
+                    .AsNoTracking()
+                    .ToListAsync(ct).ConfigureAwait(false);
+
+                var descLower = line.Description.ToLowerInvariant();
+                foreach (var uc in userCats.OrderBy(c => c.SortOrder).ThenBy(c => c.Id))
+                {
+                    var keywords = uc.Keywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (keywords.Any(kw => descLower.Contains(kw.ToLowerInvariant())))
+                    {
+                        userCatMatch = (ExpenseCategory)uc.Id;
+                        break;
+                    }
+                }
+            }
+
             var cat = isIncome
                 ? ExpenseCategory.Income
-                : learnedCat ?? classifier.Classify(line.Description, expenseAmount, source);
+                : learnedCat ?? userCatMatch ?? classifier.Classify(line.Description, expenseAmount, source);
 
             if (pendingHashes.Contains(hash) ||
                 pendingContentKeys.Contains(contentKey) ||

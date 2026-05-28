@@ -53,6 +53,10 @@ public record SuggestAliasResponse(string Suggestion);
 public record OcrTransactionItem(string Date, string Description, decimal Amount);
 public record OcrConfirmRequest(IReadOnlyList<OcrTransactionItem> Transactions);
 
+public record ApiCategoryDto(int Id, string Name, string Color, string Keywords, bool IsBuiltIn, int SortOrder);
+public record CreateCategoryRequest(string Name, string? Color, string? Keywords, int SortOrder);
+public record UpdateCategoryRequest(string? Name, string? Color, string? Keywords, int SortOrder);
+
 // ── Controller ────────────────────────────────────────────────────────────────
 
 [ApiController]
@@ -480,6 +484,131 @@ public sealed class BudgetApiController(
         var text = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
         var (inserted, skipped) = await etl.ImportTxtAsync(text, currentUser.UserId, ct).ConfigureAwait(false);
         return Ok(new { inserted, skipped });
+    }
+
+    // ── Categories ────────────────────────────────────────────────────────────
+
+    private static readonly IReadOnlyList<ApiCategoryDto> BuiltInCategories =
+        Enum.GetValues<ExpenseCategory>()
+            .Select(c => new ApiCategoryDto(
+                (int)c,
+                c switch
+                {
+                    ExpenseCategory.Uncategorized       => "Uncategorized",
+                    ExpenseCategory.Utilities           => "Utilities",
+                    ExpenseCategory.Insurance           => "Insurance",
+                    ExpenseCategory.Water               => "Water",
+                    ExpenseCategory.Subscriptions       => "Subscriptions",
+                    ExpenseCategory.Mortgage            => "Mortgage",
+                    ExpenseCategory.Groceries           => "Groceries",
+                    ExpenseCategory.Dining              => "Dining",
+                    ExpenseCategory.Transport           => "Transport",
+                    ExpenseCategory.Healthcare          => "Healthcare",
+                    ExpenseCategory.Other               => "Other",
+                    ExpenseCategory.Income              => "Income",
+                    ExpenseCategory.Savings             => "Savings",
+                    ExpenseCategory.ChaseCredit         => "Chase Credit",
+                    ExpenseCategory.TexansCreditUnion   => "Texans Credit Union",
+                    ExpenseCategory.NebraskaFurnitureMart => "Nebraska Furniture Mart",
+                    _ => c.ToString()
+                },
+                CatColor(c),
+                "",
+                true,
+                (int)c))
+            .ToList();
+
+    [HttpGet("categories")]
+    public async Task<IActionResult> GetCategories(CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+
+        var userCats = await db.UserCategories
+            .Where(c => c.UserId == currentUser.UserId)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .AsNoTracking()
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var result = BuiltInCategories
+            .Concat(userCats.Select(c => new ApiCategoryDto(c.Id, c.Name, c.Color, c.Keywords, false, c.SortOrder)))
+            .ToList();
+
+        return Ok(result);
+    }
+
+    [HttpPost("categories")]
+    public async Task<IActionResult> CreateCategory([FromBody] CreateCategoryRequest req, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest(new { error = "Name is required" });
+
+        var maxId = await db.UserCategories
+            .Where(c => c.UserId == currentUser.UserId)
+            .Select(c => (int?)c.Id)
+            .MaxAsync(ct).ConfigureAwait(false);
+
+        // EnsureSchemaAsync sets sqlite_sequence to 99, so AUTOINCREMENT will give ≥100.
+        // But in case the table is used via EF without that bootstrap, we enforce it here.
+        var cat = new UserCategory
+        {
+            UserId   = currentUser.UserId,
+            Name     = req.Name.Trim(),
+            Color    = req.Color?.Trim() ?? "#6366F1",
+            Keywords = req.Keywords?.Trim() ?? "",
+            SortOrder = req.SortOrder
+        };
+        db.UserCategories.Add(cat);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // If the assigned ID is <100 (edge case: sqlite_sequence not set), reassign
+        if (cat.Id < 100)
+        {
+            var newId = Math.Max(100, (maxId ?? 99) + 1);
+            await db.Database.ExecuteSqlAsync(
+                $"UPDATE \"UserCategories\" SET \"Id\" = {newId} WHERE \"Id\" = {cat.Id}",
+                cancellationToken: ct).ConfigureAwait(false);
+            cat.Id = newId;
+        }
+
+        return Ok(new ApiCategoryDto(cat.Id, cat.Name, cat.Color, cat.Keywords, false, cat.SortOrder));
+    }
+
+    [HttpPut("categories/{id:int}")]
+    public async Task<IActionResult> UpdateCategory(int id, [FromBody] UpdateCategoryRequest req, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (id < 100) return BadRequest(new { error = "Cannot edit built-in categories" });
+
+        var cat = await db.UserCategories
+            .FirstOrDefaultAsync(c => c.Id == id && c.UserId == currentUser.UserId, ct).ConfigureAwait(false);
+        if (cat is null) return NotFound();
+
+        if (!string.IsNullOrWhiteSpace(req.Name)) cat.Name = req.Name.Trim();
+        if (req.Color is not null) cat.Color = req.Color.Trim();
+        if (req.Keywords is not null) cat.Keywords = req.Keywords.Trim();
+        cat.SortOrder = req.SortOrder;
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return Ok(new ApiCategoryDto(cat.Id, cat.Name, cat.Color, cat.Keywords, false, cat.SortOrder));
+    }
+
+    [HttpDelete("categories/{id:int}")]
+    public async Task<IActionResult> DeleteCategory(int id, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (id < 100) return BadRequest(new { error = "Cannot delete built-in categories" });
+
+        var cat = await db.UserCategories
+            .FirstOrDefaultAsync(c => c.Id == id && c.UserId == currentUser.UserId, ct).ConfigureAwait(false);
+        if (cat is null) return NotFound();
+
+        db.UserCategories.Remove(cat);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return NoContent();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

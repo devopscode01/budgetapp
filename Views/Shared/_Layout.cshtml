@@ -38,6 +38,8 @@
            asp-controller="Asset" asp-action="Index">Assets</a>
         <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" ? "active" : "")"
            asp-controller="Import" asp-action="Index">Import</a>
+        <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Category" ? "active" : "")"
+           asp-controller="Category" asp-action="Index">Categories</a>
     </div>
 
     <div class="nav-right">
@@ -98,6 +100,8 @@
        asp-controller="Asset" asp-action="Index">Assets</a>
     <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Import" ? "active" : "")"
        asp-controller="Import" asp-action="Index">Import</a>
+    <a class="mobile-nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Category" ? "active" : "")"
+       asp-controller="Category" asp-action="Index">Categories</a>
     @if (User.Identity?.IsAuthenticated == true)
     {
         @if (User.FindFirst("budget_admin")?.Value == "true")
