@@ -221,6 +221,11 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             );
             """, cancellationToken: ct).ConfigureAwait(false);
 
+        // LinkedTransactionId added after initial schema — idempotent ALTER
+        try { await Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"BillPayments\" ADD COLUMN \"LinkedTransactionId\" INTEGER NULL",
+            cancellationToken: ct).ConfigureAwait(false); } catch { /* already exists */ }
+
         // Unique index on BillPayments (one payment per bill per month)
         await Database.ExecuteSqlRawAsync(
             """
