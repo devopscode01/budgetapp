@@ -50,6 +50,9 @@ public record AddManualRequest(string Description, decimal Amount, int Category,
 public record UpdateTransactionRequest(string? Description, decimal Amount, int Category, string? Alias = null);
 public record SuggestAliasResponse(string Suggestion);
 
+public record OcrTransactionItem(string Date, string Description, decimal Amount);
+public record OcrConfirmRequest(IReadOnlyList<OcrTransactionItem> Transactions);
+
 // ── Controller ────────────────────────────────────────────────────────────────
 
 [ApiController]
@@ -415,6 +418,52 @@ public sealed class BudgetApiController(
             skipped = run.TransactionsSkippedDuplicate,
             files = run.FilesSeen
         });
+    }
+
+    [HttpPost("import/screenshot/preview")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<IActionResult> ImportScreenshotPreview([FromForm] IFormFile file, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (file is null || file.Length == 0) return BadRequest(new { error = "No file provided." });
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var mimeType = ext switch { ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png", _ => null };
+        if (mimeType is null) return BadRequest(new { error = "Only PNG and JPG images are supported." });
+
+        var llmConfig = await db.LlmConfigs
+            .Where(c => c.UserId == currentUser.UserId && c.IsEnabled)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (llmConfig is null)
+            return BadRequest(new { error = "No active AI advisor configured. Enable one in Account → AI Advisor." });
+
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct).ConfigureAwait(false);
+
+        var (lines, error) = await llm.ExtractTransactionsFromImageAsync(llmConfig, ms.ToArray(), mimeType, ct).ConfigureAwait(false);
+        if (error is not null) return BadRequest(new { error });
+
+        var transactions = (lines ?? [])
+            .Select(l => new { date = l.Date.ToString("yyyy-MM-dd"), description = l.Description, amount = l.SignedAmount })
+            .ToList();
+        return Ok(new { transactions });
+    }
+
+    [HttpPost("import/screenshot/confirm")]
+    public async Task<IActionResult> ImportScreenshotConfirm([FromBody] OcrConfirmRequest req, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (req?.Transactions is null || req.Transactions.Count == 0)
+            return BadRequest(new { error = "No transactions provided." });
+
+        var lines = req.Transactions
+            .Where(t => DateOnly.TryParse(t.Date, out _) && !string.IsNullOrWhiteSpace(t.Description))
+            .Select(t => { DateOnly.TryParse(t.Date, out var d); return new RawStatementLine(d, t.Description, t.Amount); })
+            .ToList();
+
+        var (inserted, skipped) = await etl.ImportFromOcrAsync(lines, currentUser.UserId, ct).ConfigureAwait(false);
+        return Ok(new { inserted, skipped });
     }
 
     [HttpPost("import/txt")]
