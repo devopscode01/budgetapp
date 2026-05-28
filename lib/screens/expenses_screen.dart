@@ -25,10 +25,30 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   bool _loading = true;
   String? _error;
 
+  // Dynamic categories loaded from API (excludes Income, id=11)
+  List<({int id, String name})> _loadedCategories = _kFallbackCategories;
+
   @override
   void initState() {
     super.initState();
+    _loadCategories();
     _load();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final cats = await widget.api.getCategories();
+      if (mounted) {
+        setState(() {
+          _loadedCategories = cats
+              .where((c) => c.id != 11) // exclude Income
+              .map((c) => (id: c.id, name: c.name))
+              .toList();
+        });
+      }
+    } catch (_) {
+      // Keep fallback list on error
+    }
   }
 
   Future<void> _load() async {
@@ -151,14 +171,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   void _showEditSheet(ApiTransaction tx) {
     showCupertinoModalPopup<void>(
       context: context,
-      builder: (ctx) => _EditTxSheet(api: widget.api, tx: tx, onSaved: _load),
+      builder: (ctx) => _EditTxSheet(api: widget.api, tx: tx, onSaved: _load, categories: _loadedCategories),
     );
   }
 
   void _showAddExpense() {
     showCupertinoModalPopup<void>(
       context: context,
-      builder: (ctx) => _AddExpenseSheet(api: widget.api, ym: _selectedYm, onSaved: _load),
+      builder: (ctx) => _AddExpenseSheet(api: widget.api, ym: _selectedYm, onSaved: _load, categories: _loadedCategories),
     );
   }
 
@@ -399,7 +419,8 @@ class _AddExpenseSheet extends StatefulWidget {
   final ApiService api;
   final String? ym;
   final VoidCallback onSaved;
-  const _AddExpenseSheet({required this.api, required this.ym, required this.onSaved});
+  final List<({int id, String name})> categories;
+  const _AddExpenseSheet({required this.api, required this.ym, required this.onSaved, required this.categories});
 
   @override
   State<_AddExpenseSheet> createState() => _AddExpenseSheetState();
@@ -408,9 +429,17 @@ class _AddExpenseSheet extends StatefulWidget {
 class _AddExpenseSheetState extends State<_AddExpenseSheet> {
   final _descCtrl = TextEditingController();
   final _amtCtrl = TextEditingController();
-  int _categoryIdx = 5; // defaults to Groceries
+  int _categoryIdx = 0;
   bool _saving = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to Groceries (id=6) if available, else first entry
+    final groceryIdx = widget.categories.indexWhere((c) => c.id == 6);
+    _categoryIdx = groceryIdx >= 0 ? groceryIdx : 0;
+  }
 
   @override
   void dispose() {
@@ -430,7 +459,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
       await widget.api.addManual(
         description: desc,
         amount: amt,
-        category: _expenseCategories[_categoryIdx].id,
+        category: widget.categories.isNotEmpty ? widget.categories[_categoryIdx].id : 6,
         ym: widget.ym,
       );
       if (mounted) Navigator.pop(context);
@@ -441,6 +470,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
   }
 
   void _pickCategory() {
+    final cats = widget.categories;
     var tempIdx = _categoryIdx;
     showCupertinoModalPopup<void>(
       context: context,
@@ -454,7 +484,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
               scrollController: FixedExtentScrollController(initialItem: _categoryIdx),
               itemExtent: 36,
               onSelectedItemChanged: (i) => tempIdx = i,
-              children: _expenseCategories.map((c) => Center(
+              children: cats.map((c) => Center(
                 child: Text(c.name, style: const TextStyle(color: AppTheme.textPrimary)),
               )).toList(),
             ),
@@ -470,6 +500,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final cats = widget.categories;
     return Container(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       decoration: const BoxDecoration(
@@ -515,7 +546,8 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
                 child: Row(children: [
-                  Expanded(child: Text(_expenseCategories[_categoryIdx].name,
+                  Expanded(child: Text(
+                      cats.isNotEmpty ? cats[_categoryIdx].name : 'Select category',
                       style: const TextStyle(color: AppTheme.textPrimary))),
                   const Icon(CupertinoIcons.chevron_down, color: AppTheme.textSecondary, size: 16),
                 ]),
@@ -688,14 +720,15 @@ class _EditTxSheet extends StatefulWidget {
   final ApiService api;
   final ApiTransaction tx;
   final VoidCallback onSaved;
-  const _EditTxSheet({required this.api, required this.tx, required this.onSaved});
+  final List<({int id, String name})> categories;
+  const _EditTxSheet({required this.api, required this.tx, required this.onSaved, required this.categories});
 
   @override
   State<_EditTxSheet> createState() => _EditTxSheetState();
 }
 
-// Expense-only categories (Income is handled by the toggle separately)
-const _expenseCategories = [
+// Fallback expense-only categories used before API response arrives (Income excluded)
+const _kFallbackCategories = [
   (id: 1,  name: 'Utilities'),
   (id: 2,  name: 'Insurance'),
   (id: 3,  name: 'Water'),
@@ -724,11 +757,12 @@ class _EditTxSheetState extends State<_EditTxSheet> {
   @override
   void initState() {
     super.initState();
+    final cats = widget.categories;
     _aliasCtrl = TextEditingController(text: widget.tx.hasAlias ? widget.tx.description : '');
     _amtCtrl   = TextEditingController(text: widget.tx.amount.toStringAsFixed(2));
     _isIncome  = widget.tx.category == 'Income';
-    _categoryIdx = _expenseCategories.indexWhere((c) => c.name == widget.tx.category);
-    if (_categoryIdx < 0) _categoryIdx = _expenseCategories.indexWhere((c) => c.id == 10); // Other
+    _categoryIdx = cats.indexWhere((c) => c.name == widget.tx.category);
+    if (_categoryIdx < 0) _categoryIdx = cats.indexWhere((c) => c.id == 10); // Other
     if (_categoryIdx < 0) _categoryIdx = 0;
   }
 
@@ -752,10 +786,11 @@ class _EditTxSheetState extends State<_EditTxSheet> {
     if (amt == null || amt <= 0) { setState(() => _error = 'Enter a valid amount'); return; }
     setState(() { _saving = true; _error = null; });
     try {
+      final cats = widget.categories;
       await widget.api.updateTransaction(widget.tx.id,
         alias: alias.isEmpty ? null : alias,
         amount: amt,
-        category: _isIncome ? 11 : _expenseCategories[_categoryIdx].id);
+        category: _isIncome ? 11 : (cats.isNotEmpty ? cats[_categoryIdx].id : 10));
       if (mounted) Navigator.pop(context);
       widget.onSaved();
     } catch (e) {
@@ -764,6 +799,7 @@ class _EditTxSheetState extends State<_EditTxSheet> {
   }
 
   void _pickCategory() {
+    final cats = widget.categories;
     var tempIdx = _categoryIdx;
     showCupertinoModalPopup<void>(
       context: context,
@@ -777,7 +813,7 @@ class _EditTxSheetState extends State<_EditTxSheet> {
               scrollController: FixedExtentScrollController(initialItem: _categoryIdx),
               itemExtent: 36,
               onSelectedItemChanged: (i) => tempIdx = i,
-              children: _expenseCategories.map((c) => Center(
+              children: cats.map((c) => Center(
                 child: Text(c.name, style: const TextStyle(color: AppTheme.textPrimary)),
               )).toList(),
             ),
@@ -916,7 +952,8 @@ class _EditTxSheetState extends State<_EditTxSheet> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
                   child: Row(children: [
-                    Expanded(child: Text(_expenseCategories[_categoryIdx].name,
+                    Expanded(child: Text(
+                        widget.categories.isNotEmpty ? widget.categories[_categoryIdx].name : 'Select category',
                         style: const TextStyle(color: AppTheme.textPrimary))),
                     const Icon(CupertinoIcons.chevron_down, color: AppTheme.textSecondary, size: 16),
                   ]),

@@ -243,6 +243,21 @@ class ApiService {
     return data['insight'] as String;
   }
 
+  // Categories
+  Future<List<({int id, String name, String color, String keywords, bool isBuiltIn})>> getCategories() async {
+    final data = await _get('/api/categories') as List;
+    return data.map((e) {
+      final m = e as Map<String, dynamic>;
+      return (
+        id:        (m['id'] as num).toInt(),
+        name:      m['name'] as String? ?? '',
+        color:     m['color'] as String? ?? '#94A3B8',
+        keywords:  m['keywords'] as String? ?? '',
+        isBuiltIn: m['isBuiltIn'] as bool? ?? false,
+      );
+    }).toList();
+  }
+
   // Manual expense
   Future<void> addManual({
     required String description,
