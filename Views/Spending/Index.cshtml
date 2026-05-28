@@ -4,6 +4,8 @@
     ViewData["Title"] = "Spending";
     ViewData["MonthYm"] = Model.MonthYm;
     var categories = Enum.GetValues<ExpenseCategory>();
+    var userCategories = ViewBag.UserCategories as List<BudgetApp.Models.UserCategory> ?? new();
+
 
     string CatColor(ExpenseCategory c) => c switch {
         ExpenseCategory.Mortgage      => "#5B6EF7",
@@ -303,6 +305,15 @@
                             @foreach (var c in categories)
                             {
                                 <option value="@((int)c)">@CatLabel(c)</option>
+                            }
+                            @if (userCategories.Count > 0)
+                            {
+                                <optgroup label="Custom">
+                                @foreach (var uc in userCategories)
+                                {
+                                    <option value="@uc.Id">@uc.Name</option>
+                                }
+                                </optgroup>
                             }
                         </select>
                     </div>

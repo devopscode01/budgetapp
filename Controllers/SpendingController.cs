@@ -3,6 +3,7 @@ using BudgetApp.Services;
 using BudgetApp.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace BudgetApp.Controllers;
 
@@ -17,18 +18,23 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
         var vm = await spending.GetMonthAsync(month, householdIds, ct).ConfigureAwait(false);
         ViewBag.AvailableMonths = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
         ViewBag.ActiveCategory = category?.Trim();
+        ViewBag.UserCategories = await db.UserCategories
+            .Where(c => c.UserId == currentUser.UserId)
+            .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
+            .AsNoTracking()
+            .ToListAsync(ct).ConfigureAwait(false);
         return View(vm);
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Recategorize(int id, ExpenseCategory category, string? ym, CancellationToken ct)
+    public async Task<IActionResult> Recategorize(int id, int category, string? ym, CancellationToken ct)
     {
         var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var tx = await spending.FindTransactionAsync(id, householdIds, ct).ConfigureAwait(false);
         if (tx is not null)
         {
-            tx.Category = category;
+            tx.Category = (ExpenseCategory)category;
             tx.CategoryOverridden = true;
             await spending.SaveAsync(ct).ConfigureAwait(false);
         }
@@ -51,7 +57,7 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> EditTransaction(int id, string? description, decimal amount, ExpenseCategory category, string? ym, CancellationToken ct)
+    public async Task<IActionResult> EditTransaction(int id, string? description, decimal amount, int category, string? ym, CancellationToken ct)
     {
         var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
         var tx = await spending.FindTransactionAsync(id, householdIds, ct).ConfigureAwait(false);
@@ -59,7 +65,7 @@ public sealed class SpendingController(SpendingService spending, CurrentUserServ
         {
             if (!string.IsNullOrWhiteSpace(description)) tx.Description = description.Trim();
             if (amount > 0) tx.Amount = amount;
-            tx.Category = category;
+            tx.Category = (ExpenseCategory)category;
             tx.CategoryOverridden = true;
             await spending.SaveAsync(ct).ConfigureAwait(false);
         }
