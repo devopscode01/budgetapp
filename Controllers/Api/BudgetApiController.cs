@@ -417,6 +417,22 @@ public sealed class BudgetApiController(
         });
     }
 
+    [HttpPost("import/txt")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> ImportTxt([FromForm] IFormFile file, CancellationToken ct)
+    {
+        var (_, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (file is null || file.Length == 0) return BadRequest(new { error = "No file provided." });
+        if (!file.FileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "Only .txt files are supported." });
+
+        using var reader = new StreamReader(file.OpenReadStream(), System.Text.Encoding.UTF8);
+        var text = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+        var (inserted, skipped) = await etl.ImportTxtAsync(text, currentUser.UserId, ct).ConfigureAwait(false);
+        return Ok(new { inserted, skipped });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private async Task<(IReadOnlyList<string> hids, bool ok)> VerifyAsync(CancellationToken ct)
