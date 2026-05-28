@@ -12,6 +12,7 @@ import 'expenses_screen.dart';
 import 'debts_screen.dart';
 import 'assets_screen.dart';
 import 'bills_screen.dart';
+import 'ocr_import_sheet.dart';
 
 class MainScreen extends StatelessWidget {
   final ApiService api;
@@ -523,6 +524,27 @@ class _AccountTabState extends State<_AccountTab> {
                     ])),
                     if (!_importing)
                       const Icon(CupertinoIcons.chevron_right, color: AppTheme.textSecondary, size: 16),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Scan Statement (OCR)
+              GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  CupertinoPageRoute(builder: (_) => OcrImportSheet(api: widget.api)),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(12)),
+                  child: const Row(children: [
+                    Icon(CupertinoIcons.doc_text_viewfinder, color: AppTheme.primary),
+                    SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Scan Statement', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+                      Text('Camera or photo library — AI reads transactions', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                    ])),
+                    Icon(CupertinoIcons.chevron_right, color: AppTheme.textSecondary, size: 16),
                   ]),
                 ),
               ),

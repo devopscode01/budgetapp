@@ -12,6 +12,19 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode): $message';
 }
 
+class OcrTransaction {
+  final String date;
+  final String description;
+  final double amount;
+  OcrTransaction({required this.date, required this.description, required this.amount});
+  factory OcrTransaction.fromJson(Map<String, dynamic> j) => OcrTransaction(
+    date: j['date'] as String? ?? '',
+    description: j['description'] as String? ?? '',
+    amount: (j['amount'] as num?)?.toDouble() ?? 0.0,
+  );
+  Map<String, dynamic> toJson() => {'date': date, 'description': description, 'amount': amount};
+}
+
 class ApiService {
   final String baseUrl;
   final AuthService auth;
@@ -244,6 +257,29 @@ class ApiService {
       });
 
   // Import
+  Future<List<OcrTransaction>> previewScreenshot(File file) async {
+    final token = await auth.getValidAccessToken();
+    if (token == null) throw ApiException(401, 'Not authenticated');
+    final request = http.MultipartRequest(
+        'POST', Uri.parse('$baseUrl/api/import/screenshot/preview'))
+      ..headers['Authorization'] = 'Bearer $token'
+      ..files.add(await http.MultipartFile.fromPath('file', file.path,
+          filename: file.path.split('/').last));
+    final streamed = await request.send();
+    final body = await streamed.stream.bytesToString();
+    if (streamed.statusCode >= 400) throw ApiException(streamed.statusCode, body);
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    final list = (data['transactions'] as List?) ?? [];
+    return list.map((e) => OcrTransaction.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<Map<String, dynamic>> confirmScreenshot(List<OcrTransaction> txns) async {
+    final data = await _post('/api/import/screenshot/confirm', {
+      'transactions': txns.map((t) => t.toJson()).toList(),
+    });
+    return data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> importTxt(File file) async {
     final token = await auth.getValidAccessToken();
     if (token == null) throw ApiException(401, 'Not authenticated');
