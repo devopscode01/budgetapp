@@ -9,20 +9,6 @@ import 'ocr_import_sheet.dart';
 
 final _usd = intl_lib.NumberFormat.currency(locale: 'en_US', symbol: '\$');
 
-const _categories = [
-  (id: 1,  name: 'Utilities'),
-  (id: 2,  name: 'Insurance'),
-  (id: 3,  name: 'Water'),
-  (id: 4,  name: 'Subscriptions'),
-  (id: 5,  name: 'Mortgage'),
-  (id: 6,  name: 'Groceries'),
-  (id: 7,  name: 'Dining'),
-  (id: 8,  name: 'Transport'),
-  (id: 9,  name: 'Healthcare'),
-  (id: 10, name: 'Other'),
-  (id: 11, name: 'Income'),
-  (id: 12, name: 'Savings'),
-];
 
 class ExpensesScreen extends StatefulWidget {
   final ApiService api;
@@ -444,7 +430,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
       await widget.api.addManual(
         description: desc,
         amount: amt,
-        category: _categories[_categoryIdx].id,
+        category: _expenseCategories[_categoryIdx].id,
         ym: widget.ym,
       );
       if (mounted) Navigator.pop(context);
@@ -468,7 +454,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
               scrollController: FixedExtentScrollController(initialItem: _categoryIdx),
               itemExtent: 36,
               onSelectedItemChanged: (i) => tempIdx = i,
-              children: _categories.map((c) => Center(
+              children: _expenseCategories.map((c) => Center(
                 child: Text(c.name, style: const TextStyle(color: AppTheme.textPrimary)),
               )).toList(),
             ),
@@ -529,7 +515,7 @@ class _AddExpenseSheetState extends State<_AddExpenseSheet> {
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
                 child: Row(children: [
-                  Expanded(child: Text(_categories[_categoryIdx].name,
+                  Expanded(child: Text(_expenseCategories[_categoryIdx].name,
                       style: const TextStyle(color: AppTheme.textPrimary))),
                   const Icon(CupertinoIcons.chevron_down, color: AppTheme.textSecondary, size: 16),
                 ]),
@@ -708,10 +694,28 @@ class _EditTxSheet extends StatefulWidget {
   State<_EditTxSheet> createState() => _EditTxSheetState();
 }
 
+// Expense-only categories (Income is handled by the toggle separately)
+const _expenseCategories = [
+  (id: 1,  name: 'Utilities'),
+  (id: 2,  name: 'Insurance'),
+  (id: 3,  name: 'Water'),
+  (id: 4,  name: 'Subscriptions'),
+  (id: 5,  name: 'Mortgage'),
+  (id: 6,  name: 'Groceries'),
+  (id: 7,  name: 'Dining'),
+  (id: 8,  name: 'Transport'),
+  (id: 9,  name: 'Healthcare'),
+  (id: 10, name: 'Other'),
+  (id: 12, name: 'Savings'),
+  (id: 13, name: 'Chase Credit'),
+  (id: 14, name: 'Texans Credit Union'),
+];
+
 class _EditTxSheetState extends State<_EditTxSheet> {
   late final TextEditingController _aliasCtrl;
   late final TextEditingController _amtCtrl;
   late int _categoryIdx;
+  late bool _isIncome;
   bool _saving = false;
   bool _suggesting = false;
   String? _error;
@@ -721,8 +725,10 @@ class _EditTxSheetState extends State<_EditTxSheet> {
     super.initState();
     _aliasCtrl = TextEditingController(text: widget.tx.hasAlias ? widget.tx.description : '');
     _amtCtrl   = TextEditingController(text: widget.tx.amount.toStringAsFixed(2));
-    _categoryIdx = _categories.indexWhere((c) => c.name == widget.tx.category);
-    if (_categoryIdx < 0) _categoryIdx = _categories.length - 3;
+    _isIncome  = widget.tx.category == 'Income';
+    _categoryIdx = _expenseCategories.indexWhere((c) => c.name == widget.tx.category);
+    if (_categoryIdx < 0) _categoryIdx = _expenseCategories.indexWhere((c) => c.id == 10); // Other
+    if (_categoryIdx < 0) _categoryIdx = 0;
   }
 
   @override
@@ -748,7 +754,7 @@ class _EditTxSheetState extends State<_EditTxSheet> {
       await widget.api.updateTransaction(widget.tx.id,
         alias: alias.isEmpty ? null : alias,
         amount: amt,
-        category: _categories[_categoryIdx].id);
+        category: _isIncome ? 11 : _expenseCategories[_categoryIdx].id);
       if (mounted) Navigator.pop(context);
       widget.onSaved();
     } catch (e) {
@@ -770,7 +776,7 @@ class _EditTxSheetState extends State<_EditTxSheet> {
               scrollController: FixedExtentScrollController(initialItem: _categoryIdx),
               itemExtent: 36,
               onSelectedItemChanged: (i) => tempIdx = i,
-              children: _categories.map((c) => Center(
+              children: _expenseCategories.map((c) => Center(
                 child: Text(c.name, style: const TextStyle(color: AppTheme.textPrimary)),
               )).toList(),
             ),
@@ -806,8 +812,47 @@ class _EditTxSheetState extends State<_EditTxSheet> {
                 child: const Icon(CupertinoIcons.xmark_circle_fill, color: AppTheme.textSecondary),
               ),
             ]),
+            const SizedBox(height: 12),
+            // Income / Expense toggle
+            Container(
+              decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _isIncome = false),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: !_isIncome ? AppTheme.spend.withValues(alpha: 0.15) : CupertinoColors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(child: Text('Expense',
+                          style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600,
+                            color: !_isIncome ? AppTheme.spend : AppTheme.textSecondary))),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _isIncome = true),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _isIncome ? AppTheme.income.withValues(alpha: 0.15) : CupertinoColors.transparent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(child: Text('Income',
+                          style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600,
+                            color: _isIncome ? AppTheme.income : AppTheme.textSecondary))),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
             if (bankName != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
@@ -862,19 +907,21 @@ class _EditTxSheetState extends State<_EditTxSheet> {
               ),
               decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
             ),
-            const SizedBox(height: 10),
-            GestureDetector(
-              onTap: _pickCategory,
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
-                child: Row(children: [
-                  Expanded(child: Text(_categories[_categoryIdx].name,
-                      style: const TextStyle(color: AppTheme.textPrimary))),
-                  const Icon(CupertinoIcons.chevron_down, color: AppTheme.textSecondary, size: 16),
-                ]),
+            if (!_isIncome) ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: _pickCategory,
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
+                  child: Row(children: [
+                    Expanded(child: Text(_expenseCategories[_categoryIdx].name,
+                        style: const TextStyle(color: AppTheme.textPrimary))),
+                    const Icon(CupertinoIcons.chevron_down, color: AppTheme.textSecondary, size: 16),
+                  ]),
+                ),
               ),
-            ),
+            ],
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(_error!, style: const TextStyle(color: AppTheme.spend, fontSize: 13)),
