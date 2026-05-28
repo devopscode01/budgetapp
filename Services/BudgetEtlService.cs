@@ -255,48 +255,10 @@ public sealed class BudgetEtlService(
                 var lines = StatementLineParser.Parse(source, text, year);
                 log.AppendLine($"{relFromInbox}: parsed {lines.Count} lines ({source})");
 
-                foreach (var line in lines)
-                {
-                    var isIncome = source == StatementSource.BankOfAmerica && line.SignedAmount > 0;
-                    var expenseAmount = ToExpenseAmount(line.SignedAmount, source);
-                    if (expenseAmount <= 0) continue;
-
-                    var cat = isIncome
-                        ? ExpenseCategory.Income
-                        : classifier.Classify(line.Description, expenseAmount, source);
-                    var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, relFromInbox, userId);
-                    var clampedDesc = ClampForParsedDescription(line.Description);
-                    var contentKey = $"{line.Date:O}|{expenseAmount.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{clampedDesc.ToUpperInvariant()}|{userId}";
-
-                    if (pendingHashes.Contains(hash) ||
-                        pendingContentKeys.Contains(contentKey) ||
-                        await db.ParsedTransactions.AnyAsync(t => t.DedupeHash == hash, ct).ConfigureAwait(false) ||
-                        await db.ParsedTransactions.AnyAsync(t =>
-                            t.UserId == userId &&
-                            t.PostedDate == line.Date &&
-                            t.Amount == expenseAmount &&
-                            t.Description == clampedDesc, ct).ConfigureAwait(false))
-                    {
-                        run.TransactionsSkippedDuplicate++;
-                        continue;
-                    }
-
-                    db.ParsedTransactions.Add(new ParsedTransaction
-                    {
-                        UserId = userId,
-                        PostedDate = line.Date,
-                        Description = clampedDesc,
-                        Amount = expenseAmount,
-                        Category = cat,
-                        Source = source,
-                        SourceFileName = ClampForSourceFileName(relFromInbox),
-                        DedupeHash = hash,
-                        CategoryOverridden = false
-                    });
-                    pendingHashes.Add(hash);
-                    pendingContentKeys.Add(contentKey);
-                    run.TransactionsInserted++;
-                }
+                var (linesInserted, linesSkipped) = await PersistLinesAsync(
+                    lines, source, relFromInbox, userId, pendingHashes, pendingContentKeys, ct).ConfigureAwait(false);
+                run.TransactionsInserted += linesInserted;
+                run.TransactionsSkippedDuplicate += linesSkipped;
 
                 if (_opt.MoveFilesAfterImport)
                 {
@@ -427,15 +389,104 @@ public sealed class BudgetEtlService(
 
     /// <summary>
     /// Normalize so positive means money out (expense), using the sign convention of each institution.
+    /// BofA, txt exports, and OCR all use negative = debit convention so we take Abs().
     /// </summary>
     private static decimal ToExpenseAmount(decimal signedFromStatement, StatementSource source)
     {
         return source switch
         {
             StatementSource.ChaseCredit => signedFromStatement <= 0 ? 0m : signedFromStatement,
-            StatementSource.BankOfAmerica => Math.Abs(signedFromStatement),
+            StatementSource.BankOfAmerica or
+            StatementSource.BofATextExport or
+            StatementSource.OcrScreenshot => Math.Abs(signedFromStatement),
             _ => signedFromStatement < 0 ? decimal.Negate(signedFromStatement) : signedFromStatement
         };
+    }
+
+    private async Task<(int Inserted, int Skipped)> PersistLinesAsync(
+        IReadOnlyList<RawStatementLine> lines,
+        StatementSource source,
+        string sourceRef,
+        string userId,
+        HashSet<string> pendingHashes,
+        HashSet<string> pendingContentKeys,
+        CancellationToken ct)
+    {
+        var inserted = 0;
+        var skipped = 0;
+
+        foreach (var line in lines)
+        {
+            var isIncome = line.SignedAmount > 0 && source is
+                StatementSource.BankOfAmerica or
+                StatementSource.BofATextExport or
+                StatementSource.OcrScreenshot;
+            var expenseAmount = ToExpenseAmount(line.SignedAmount, source);
+            if (expenseAmount <= 0) continue;
+
+            var cat = isIncome
+                ? ExpenseCategory.Income
+                : classifier.Classify(line.Description, expenseAmount, source);
+            var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, sourceRef, userId);
+            var clampedDesc = ClampForParsedDescription(line.Description);
+            var contentKey = $"{line.Date:O}|{expenseAmount.ToString(CultureInfo.InvariantCulture)}|{clampedDesc.ToUpperInvariant()}|{userId}";
+
+            if (pendingHashes.Contains(hash) ||
+                pendingContentKeys.Contains(contentKey) ||
+                await db.ParsedTransactions.AnyAsync(t => t.DedupeHash == hash, ct).ConfigureAwait(false) ||
+                await db.ParsedTransactions.AnyAsync(t =>
+                    t.UserId == userId &&
+                    t.PostedDate == line.Date &&
+                    t.Amount == expenseAmount &&
+                    t.Description == clampedDesc, ct).ConfigureAwait(false))
+            {
+                skipped++;
+                continue;
+            }
+
+            db.ParsedTransactions.Add(new ParsedTransaction
+            {
+                UserId = userId,
+                PostedDate = line.Date,
+                Description = clampedDesc,
+                Amount = expenseAmount,
+                Category = cat,
+                Source = source,
+                SourceFileName = ClampForSourceFileName(sourceRef),
+                DedupeHash = hash,
+                CategoryOverridden = false
+            });
+            pendingHashes.Add(hash);
+            pendingContentKeys.Add(contentKey);
+            inserted++;
+        }
+
+        return (inserted, skipped);
+    }
+
+    public async Task<(int Inserted, int Skipped)> ImportTxtAsync(string text, string userId, CancellationToken ct)
+    {
+        var lines = StatementLineParser.Parse(StatementSource.BofATextExport, text, DateTime.UtcNow.Year);
+        var pendingHashes = new HashSet<string>(StringComparer.Ordinal);
+        var pendingContentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var (inserted, skipped) = await PersistLinesAsync(
+            lines, StatementSource.BofATextExport, "txt_import", userId, pendingHashes, pendingContentKeys, ct).ConfigureAwait(false);
+        if (inserted > 0)
+            await AutoMatchBillsAsync(userId, new StringBuilder(), ct).ConfigureAwait(false);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return (inserted, skipped);
+    }
+
+    public async Task<(int Inserted, int Skipped)> ImportFromOcrAsync(IReadOnlyList<RawStatementLine> lines, string userId, CancellationToken ct)
+    {
+        var pendingHashes = new HashSet<string>(StringComparer.Ordinal);
+        var pendingContentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var (inserted, skipped) = await PersistLinesAsync(
+            lines, StatementSource.OcrScreenshot, "screenshot_import", userId, pendingHashes, pendingContentKeys, ct).ConfigureAwait(false);
+        if (inserted > 0)
+            await AutoMatchBillsAsync(userId, new StringBuilder(), ct).ConfigureAwait(false);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return (inserted, skipped);
     }
 
     /// <summary>Parses a folder name like "may_2026" into the first day of that month. Returns null if unrecognised.</summary>

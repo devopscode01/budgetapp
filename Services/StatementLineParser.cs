@@ -39,6 +39,15 @@ public static class StatementLineParser
         RegexOptions.Compiled);
 
     /// <summary>
+    /// BofA text export: MM/DD/YYYY  Description  -Amount  Running_Balance
+    /// Greedy desc capture so two-or-more spaces act as the column delimiter.
+    /// Lines with only one trailing number (e.g. Beginning balance) won't match.
+    /// </summary>
+    private static readonly Regex BofATxtLine = new(
+        @"^\s*(?<mo>\d{1,2})/(?<da>\d{1,2})/(?<y>\d{2,4})\s{2,}(?<desc>.+)\s{2,}(?<amt>-?\d{1,3}(?:,\d{3})*\.\d{2})\s+[\d,]+\.\d{2}\s*$",
+        RegexOptions.Compiled);
+
+    /// <summary>
     /// Amount at end of a transaction blob (allows <c>...CHARGE337.56</c> with no space).
     /// Also handles Chase "PURCHASES AND REDEMPTIONS" format where reward points follow the amount:
     /// <c>AMAZON.COM AMZN.COM/BILLWA 75.36 7,536</c> — the trailing integer is reward points, not an amount.
@@ -54,6 +63,7 @@ public static class StatementLineParser
         {
             StatementSource.ChaseCredit => ParseChase(fullText, lines, defaultYear),
             StatementSource.BankOfAmerica => ParseBofA(fullText, lines, defaultYear),
+            StatementSource.BofATextExport => ParseBofATextExport(lines, defaultYear),
             _ => ParseGeneric(fullText, lines, defaultYear)
         };
     }
@@ -246,6 +256,27 @@ public static class StatementLineParser
         if (!TryParseAmount(m.Groups["amt"].Value, out amt)) return false;
         desc = rest[..m.Index].TrimEnd();
         return true;
+    }
+
+    private static List<RawStatementLine> ParseBofATextExport(IReadOnlyList<string> lines, int defaultYear)
+    {
+        var result = new List<RawStatementLine>();
+        foreach (var line in lines)
+        {
+            if (line.Length < 20) continue;
+            var m = BofATxtLine.Match(line);
+            if (!m.Success) continue;
+            if (!int.TryParse(m.Groups["mo"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mo)) continue;
+            if (!int.TryParse(m.Groups["da"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var da)) continue;
+            if (!int.TryParse(m.Groups["y"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var y)) continue;
+            if (y < 100) y += 2000;
+            if (!TryMakeDate(y, mo, da, out var date)) continue;
+            if (!TryParseAmount(m.Groups["amt"].Value, out var amt)) continue;
+            var desc = NormalizeDesc(m.Groups["desc"].Value);
+            if (desc.Length < 3 || ShouldSkipBofADescription(desc)) continue;
+            result.Add(new RawStatementLine(date, desc, amt));
+        }
+        return result;
     }
 
     private static List<RawStatementLine> ParseGeneric(string fullText, IReadOnlyList<string> lines, int defaultYear)

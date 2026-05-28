@@ -49,6 +49,49 @@
         </div>
     </div>
 
+    @* TXT import *@
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="section-title">Upload Statement TXT</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                Upload a Bank of America text export (<code>.txt</code>). Transactions are imported immediately —
+                duplicates are skipped automatically.
+            </p>
+            <form method="post" asp-action="UploadTxt" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <div class="mb-3">
+                    <label class="form-label">Select TXT file</label>
+                    <input type="file" name="file" accept=".txt" class="form-control" required />
+                </div>
+                <button type="submit" class="btn btn-outline-primary w-100">Import TXT</button>
+            </form>
+        </div>
+    </div>
+
+    @* Screenshot OCR import *@
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="section-title">Import from Screenshot (OCR)</div>
+            <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                Upload a PNG or JPG screenshot of a bank statement. Your configured AI advisor will extract
+                the transactions automatically. Duplicates are skipped.
+            </p>
+            <form method="post" asp-action="UploadScreenshot" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <div class="mb-3">
+                    <label class="form-label">Select screenshot</label>
+                    <input type="file" name="file" accept=".png,.jpg,.jpeg" class="form-control" required />
+                </div>
+                <button type="submit" class="btn btn-outline-primary w-100">Import Screenshot</button>
+            </form>
+            <p class="mt-2 mb-0" style="font-size:.75rem;color:var(--tm)">
+                Requires a vision-capable model (e.g. <code>llava</code>) configured in Account → AI Advisor.
+            </p>
+        </div>
+    </div>
+
     @* Step 2: Process *@
     <div class="col-md-6">
         <div class="card h-100">

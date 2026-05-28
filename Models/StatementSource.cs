@@ -4,5 +4,7 @@ public enum StatementSource
 {
     Unknown = 0,
     ChaseCredit = 1,
-    BankOfAmerica = 2
+    BankOfAmerica = 2,
+    BofATextExport = 3,
+    OcrScreenshot = 4
 }

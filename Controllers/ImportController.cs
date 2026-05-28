@@ -3,11 +3,12 @@ using BudgetApp.Services;
 using BudgetApp.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace BudgetApp.Controllers;
 
 [Authorize]
-public sealed class ImportController(BudgetEtlService etl, SpendingService spending, CurrentUserService currentUser, BudgetDbContext db) : Controller
+public sealed class ImportController(BudgetEtlService etl, SpendingService spending, CurrentUserService currentUser, BudgetDbContext db, LlmService llm) : Controller
 {
     [HttpGet]
     public async Task<IActionResult> Index(string? ym, CancellationToken ct)
@@ -53,6 +54,83 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
             ? $"Full import: {run.TransactionsInserted} transactions inserted, {run.TransactionsSkippedDuplicate} duplicates skipped, {run.FilesSeen} PDF(s) scanned."
             : "Import encountered errors.";
         var vm = await BuildVmAsync(null, msg, run.Success, run.TransactionsInserted, run.TransactionsSkippedDuplicate, ct).ConfigureAwait(false);
+        return View(nameof(Index), vm);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UploadTxt(
+        [FromForm] IFormFile? file,
+        string? ym,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+        {
+            var vm0 = await BuildVmAsync(ym, "No file selected.", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+        if (!file.FileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+        {
+            var vm0 = await BuildVmAsync(ym, "Only .txt files are supported for this import.", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+
+        using var reader = new StreamReader(file.OpenReadStream(), System.Text.Encoding.UTF8);
+        var text = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+        var (inserted, skipped) = await etl.ImportTxtAsync(text, currentUser.UserId, ct).ConfigureAwait(false);
+        var msg = $"TXT import: {inserted} transaction(s) added, {skipped} duplicate(s) skipped.";
+        var vm = await BuildVmAsync(ym, msg, inserted > 0 || skipped > 0, inserted, skipped, ct).ConfigureAwait(false);
+        return View(nameof(Index), vm);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UploadScreenshot(
+        [FromForm] IFormFile? file,
+        string? ym,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+        {
+            var vm0 = await BuildVmAsync(ym, "No file selected.", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var mimeType = ext switch { ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png", _ => null };
+        if (mimeType is null)
+        {
+            var vm0 = await BuildVmAsync(ym, "Only PNG and JPG screenshots are supported.", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+
+        var llmConfig = await db.LlmConfigs
+            .Where(c => c.UserId == currentUser.UserId && c.IsEnabled)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (llmConfig is null)
+        {
+            var vm0 = await BuildVmAsync(ym, "No active AI advisor configured. Enable one in Account → AI Advisor settings.", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct).ConfigureAwait(false);
+
+        var (lines, error) = await llm.ExtractTransactionsFromImageAsync(llmConfig, ms.ToArray(), mimeType, ct).ConfigureAwait(false);
+        if (error is not null)
+        {
+            var vm0 = await BuildVmAsync(ym, $"OCR failed: {error}", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+        if (lines is null || lines.Count == 0)
+        {
+            var vm0 = await BuildVmAsync(ym, "No transactions found in the screenshot.", false, 0, 0, ct).ConfigureAwait(false);
+            return View(nameof(Index), vm0);
+        }
+
+        var (inserted, skipped) = await etl.ImportFromOcrAsync(lines, currentUser.UserId, ct).ConfigureAwait(false);
+        var msg = $"Screenshot OCR: {inserted} transaction(s) added, {skipped} duplicate(s) skipped.";
+        var vm = await BuildVmAsync(ym, msg, inserted > 0 || skipped > 0, inserted, skipped, ct).ConfigureAwait(false);
         return View(nameof(Index), vm);
     }
 
