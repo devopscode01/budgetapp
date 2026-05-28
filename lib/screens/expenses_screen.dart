@@ -709,6 +709,7 @@ const _expenseCategories = [
   (id: 12, name: 'Savings'),
   (id: 13, name: 'Chase Credit'),
   (id: 14, name: 'Texans Credit Union'),
+  (id: 15, name: 'Nebraska Furniture Mart'),
 ];
 
 class _EditTxSheetState extends State<_EditTxSheet> {
