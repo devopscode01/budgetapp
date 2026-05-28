@@ -15,11 +15,12 @@ public record ApiBill(
     int? LinkedDebtId, string? LinkedDebtName, bool IsActive, string Notes,
     bool IsPaidThisMonth, int DaysUntilDue, ApiBillPaymentInfo? PaymentThisMonth);
 
-public record ApiBillPaymentInfo(int Id, decimal Amount, string AcknowledgedAt, string By);
+public record ApiBillPaymentInfo(int Id, decimal Amount, string AcknowledgedAt, string By, int? LinkedTransactionId);
 
 public record AddBillRequest(string Name, decimal? Amount, int DayOfMonth, int? LinkedDebtId, string? Notes);
 public record UpdateBillRequest(string Name, decimal? Amount, int DayOfMonth, int? LinkedDebtId, string? Notes);
-public record AcknowledgeBillRequest(decimal Amount);
+public record AcknowledgeBillRequest(decimal Amount, int? TransactionId = null);
+public record LinkTransactionRequest(int TransactionId, decimal Amount);
 
 public record ApiLlmConfig(int Provider, string Endpoint, string ApiKey, string Model, bool IsEnabled);
 public record UpdateLlmConfigRequest(int Provider, string Endpoint, string ApiKey, string Model, bool IsEnabled);
@@ -170,11 +171,71 @@ public sealed class BillsApiController(
             Amount               = req.Amount,
             AcknowledgedByName   = currentUser.DisplayName,
             DebtDeducted         = deductedDebt,
+            LinkedTransactionId  = req.TransactionId,
         };
         db.BillPayments.Add(payment);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
         bill.Payments.Add(payment);
+        return Ok(ToDto(bill, today));
+    }
+
+    [HttpPost("bills/{id:int}/link-transaction")]
+    public async Task<IActionResult> LinkTransaction(int id, [FromBody] LinkTransactionRequest req, CancellationToken ct)
+    {
+        var (hids, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+
+        var tx = await db.ParsedTransactions
+            .FirstOrDefaultAsync(t => t.Id == req.TransactionId && hids.Contains(t.UserId), ct)
+            .ConfigureAwait(false);
+        if (tx is null) return NotFound(new { error = "Transaction not found" });
+
+        var today    = DateOnly.FromDateTime(DateTime.Today);
+        var monthKey = new DateOnly(today.Year, today.Month, 1);
+
+        var bill = await db.BillAlerts
+            .Include(b => b.Payments.Where(p => p.Month == monthKey))
+            .Include(b => b.LinkedDebt)
+            .FirstOrDefaultAsync(b => b.Id == id && hids.Contains(b.UserId), ct)
+            .ConfigureAwait(false);
+        if (bill is null) return NotFound();
+
+        var existing = bill.Payments.FirstOrDefault(p => p.Month == monthKey);
+        if (existing is not null)
+        {
+            existing.LinkedTransactionId = req.TransactionId;
+            existing.Amount              = req.Amount;
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        else
+        {
+            var deductedDebt = false;
+            if (bill.LinkedDebtId.HasValue && req.Amount > 0)
+            {
+                var debt = bill.LinkedDebt
+                    ?? await db.Debts.FindAsync(new object[] { bill.LinkedDebtId.Value }, ct).ConfigureAwait(false);
+                if (debt is not null && hids.Contains(debt.UserId))
+                {
+                    debt.Balance    = Math.Max(0, debt.Balance - req.Amount);
+                    debt.UpdatedUtc = DateTime.UtcNow;
+                    deductedDebt    = true;
+                }
+            }
+            var payment = new BillPayment
+            {
+                BillAlertId         = id,
+                Month               = monthKey,
+                Amount              = req.Amount,
+                AcknowledgedByName  = currentUser.DisplayName,
+                DebtDeducted        = deductedDebt,
+                LinkedTransactionId = req.TransactionId,
+            };
+            db.BillPayments.Add(payment);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            bill.Payments.Add(payment);
+        }
+
         return Ok(ToDto(bill, today));
     }
 
@@ -288,7 +349,8 @@ public sealed class BillsApiController(
             payment is null ? null : new ApiBillPaymentInfo(
                 payment.Id, payment.Amount,
                 payment.AcknowledgedUtc.ToString("o"),
-                payment.AcknowledgedByName));
+                payment.AcknowledgedByName,
+                payment.LinkedTransactionId));
     }
 
     private static string BuildPrompt(

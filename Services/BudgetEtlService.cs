@@ -585,11 +585,12 @@ public sealed class BudgetEtlService(
 
             db.BillPayments.Add(new BillPayment
             {
-                BillAlertId        = bill.Id,
-                Month              = monthKey,
-                Amount             = amount,
-                AcknowledgedByName = "Auto-matched from statement",
-                DebtDeducted       = deductedDebt,
+                BillAlertId         = bill.Id,
+                Month               = monthKey,
+                Amount              = amount,
+                AcknowledgedByName  = "Auto-matched from statement",
+                DebtDeducted        = deductedDebt,
+                LinkedTransactionId = matched.Id,
             });
 
             log.AppendLine($"Auto-matched bill \"{bill.Name}\" to transaction \"{matched.Description}\" (${amount:F2})");

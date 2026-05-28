@@ -611,6 +611,39 @@ public sealed class BudgetApiController(
         return NoContent();
     }
 
+    [HttpGet("expenses/search")]
+    public async Task<IActionResult> SearchExpenses([FromQuery] string q, [FromQuery] int limit = 30, CancellationToken ct = default)
+    {
+        var (hids, ok) = await VerifyAsync(ct);
+        if (!ok) return Forbid();
+        if (string.IsNullOrWhiteSpace(q)) return Ok(Array.Empty<object>());
+
+        var search = "%" + q.Trim().Replace("%", @"\%") + "%";
+        var txs = await db.ParsedTransactions
+            .Where(t => hids.Contains(t.UserId) &&
+                        (EF.Functions.Like(t.Description, search) ||
+                         (t.Alias != null && EF.Functions.Like(t.Alias, search))))
+            .OrderByDescending(t => t.PostedDate)
+            .Take(limit)
+            .AsNoTracking()
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var userCatMap = await db.UserCategories
+            .Where(c => c.UserId == currentUser.UserId)
+            .AsNoTracking()
+            .ToDictionaryAsync(c => c.Id, ct).ConfigureAwait(false);
+
+        return Ok(txs.Select(t =>
+        {
+            var catId   = (int)t.Category;
+            var catName = catId >= 100 && userCatMap.TryGetValue(catId, out var uc) ? uc.Name : t.Category.ToString();
+            var color   = catId >= 100 && userCatMap.TryGetValue(catId, out var uc2) ? uc2.Color : CatColor(t.Category);
+            return new ApiTransaction(t.Id, t.PostedDate.ToString("yyyy-MM-dd"),
+                t.Alias ?? t.Description, t.Alias != null ? t.Description : null,
+                catName, color, t.Amount);
+        }));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private async Task<(IReadOnlyList<string> hids, bool ok)> VerifyAsync(CancellationToken ct)
