@@ -1,5 +1,3 @@
-import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:local_auth/local_auth.dart';
 import '../models/models.dart';
@@ -12,7 +10,6 @@ import 'expenses_screen.dart';
 import 'debts_screen.dart';
 import 'assets_screen.dart';
 import 'bills_screen.dart';
-import 'ocr_import_sheet.dart';
 
 class MainScreen extends StatelessWidget {
   final ApiService api;
@@ -109,7 +106,6 @@ class _AccountTabState extends State<_AccountTab> {
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
   String _biometricLabel = 'Face ID';
-  bool _importing = false;
 
   LlmConfig? _llmConfig;
 
@@ -278,49 +274,6 @@ class _AccountTabState extends State<_AccountTab> {
         ),
       ),
     );
-  }
-
-  Future<void> _importTxt() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['txt'],
-      allowMultiple: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final path = result.files.first.path;
-    if (path == null) return;
-
-    setState(() => _importing = true);
-    try {
-      final res = await widget.api.importTxt(File(path));
-      final inserted = res['inserted'] as int? ?? 0;
-      final skipped  = res['skipped']  as int? ?? 0;
-      if (!mounted) return;
-      await showCupertinoDialog<void>(
-        context: context,
-        builder: (ctx) => CupertinoAlertDialog(
-          title: const Text('Import Complete'),
-          content: Text('$inserted transaction(s) added\n$skipped duplicate(s) skipped'),
-          actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      await showCupertinoDialog<void>(
-        context: context,
-        builder: (ctx) => CupertinoAlertDialog(
-          title: const Text('Import Failed'),
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-          ],
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _importing = false);
-    }
   }
 
   Future<void> _loadBiometricState() async {
@@ -503,48 +456,6 @@ class _AccountTabState extends State<_AccountTab> {
                       ),
                     ])),
                     const Icon(CupertinoIcons.chevron_right, color: AppTheme.textSecondary, size: 16),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Import Statement
-              GestureDetector(
-                onTap: _importing ? null : _importTxt,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(12)),
-                  child: Row(children: [
-                    _importing
-                        ? const CupertinoActivityIndicator()
-                        : const Icon(CupertinoIcons.doc_text, color: AppTheme.primary),
-                    const SizedBox(width: 12),
-                    const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Import Statement', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
-                      Text('Upload a bank statement .txt file', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                    ])),
-                    if (!_importing)
-                      const Icon(CupertinoIcons.chevron_right, color: AppTheme.textSecondary, size: 16),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Scan Statement (OCR)
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  CupertinoPageRoute(builder: (_) => OcrImportSheet(api: widget.api)),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(12)),
-                  child: const Row(children: [
-                    Icon(CupertinoIcons.doc_text_viewfinder, color: AppTheme.primary),
-                    SizedBox(width: 12),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Scan Statement', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
-                      Text('Camera or photo library — AI reads transactions', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                    ])),
-                    Icon(CupertinoIcons.chevron_right, color: AppTheme.textSecondary, size: 16),
                   ]),
                 ),
               ),
