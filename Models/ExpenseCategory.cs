@@ -18,5 +18,11 @@ public enum ExpenseCategory
     Income = 11,
 
     /// <summary>Savings / transfers to savings (shown separately on summary report).</summary>
-    Savings = 12
+    Savings = 12,
+
+    /// <summary>Chase credit card payment.</summary>
+    ChaseCredit = 13,
+
+    /// <summary>Texans Credit Union payment or transfer.</summary>
+    TexansCreditUnion = 14
 }

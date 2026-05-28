@@ -519,8 +519,10 @@ public sealed class BudgetApiController(
         ExpenseCategory.Subscriptions => "#6366F1",
         ExpenseCategory.Healthcare    => "#EF4444",
         ExpenseCategory.Savings       => "#059669",
-        ExpenseCategory.Income        => "#22C55E",
-        ExpenseCategory.Other         => "#64748B",
-        _                             => "#94A3B8"
+        ExpenseCategory.Income            => "#22C55E",
+        ExpenseCategory.Other             => "#64748B",
+        ExpenseCategory.ChaseCredit       => "#1A56DB",
+        ExpenseCategory.TexansCreditUnion => "#0E9F6E",
+        _                                 => "#94A3B8"
     };
 }

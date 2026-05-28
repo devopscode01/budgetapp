@@ -425,14 +425,21 @@ public sealed class BudgetEtlService(
             var expenseAmount = ToExpenseAmount(line.SignedAmount, source);
             if (expenseAmount <= 0) continue;
 
-            var cat = isIncome
-                ? ExpenseCategory.Income
-                : classifier.Classify(line.Description, expenseAmount, source);
             var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, sourceRef, userId);
             var clampedDesc = ClampForParsedDescription(line.Description);
             var descPrefix = DescDedupePrefix(clampedDesc);
             var contentKey = $"{line.Date:O}|{expenseAmount.ToString(CultureInfo.InvariantCulture)}|{descPrefix}|{userId}";
             var likePattern = descPrefix.Replace("%", @"\%") + "%";
+
+            // AI learning: use manually overridden category from a past import if description prefix matches
+            var learnedCat = isIncome ? null : await db.ParsedTransactions
+                .Where(t => t.UserId == userId && t.CategoryOverridden && EF.Functions.Like(t.Description, likePattern))
+                .Select(t => (ExpenseCategory?)t.Category)
+                .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+            var cat = isIncome
+                ? ExpenseCategory.Income
+                : learnedCat ?? classifier.Classify(line.Description, expenseAmount, source);
 
             if (pendingHashes.Contains(hash) ||
                 pendingContentKeys.Contains(contentKey) ||

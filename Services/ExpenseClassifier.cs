@@ -22,7 +22,9 @@ public sealed class ExpenseClassifier(IOptions<BudgetOptions> options)
         (@"(WHOLE\s*FOODS|TRADER|KROGER|SAFEWAY|PUBLIX|WEGMANS|ALDI|COSTCO\s*WHSE|GROCERY)", ExpenseCategory.Groceries),
         (@"(RESTAURANT|CAFE|COFFEE|STARBUCK|DOORDASH|UBER\s*EATS|GRUBHUB)", ExpenseCategory.Dining),
         (@"(UBER\s*TRIP|LYFT|SHELL|CHEVRON|EXXON|PARKING|MTA|METRO)", ExpenseCategory.Transport),
-        (@"(PHARMACY|CVS|WALGREENS|RITE\s*AID|HOSPITAL|CLINIC|DENTAL|DOCTOR)", ExpenseCategory.Healthcare)
+        (@"(PHARMACY|CVS|WALGREENS|RITE\s*AID|HOSPITAL|CLINIC|DENTAL|DOCTOR)", ExpenseCategory.Healthcare),
+        (@"(CHASE\s*CREDIT|CHASE\s*CRD|CHASE\s*CARD|CHASE\s*EPAY)", ExpenseCategory.ChaseCredit),
+        (@"(TEXANS\s*CU|TEXANS\s*CREDIT|TEXANS\s*FED|TEXANS\s*FCU|TEXANSCREDIT)", ExpenseCategory.TexansCreditUnion)
     ];
 
     private static readonly Regex[] Compiled = Rules
