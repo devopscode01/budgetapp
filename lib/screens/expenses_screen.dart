@@ -155,6 +155,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             child: const Text('Edit / Rename'),
           ),
           CupertinoActionSheetAction(
+            onPressed: () { Navigator.pop(ctx); _showLinkToBill(tx); },
+            child: const Text('Link to Bill'),
+          ),
+          CupertinoActionSheetAction(
             isDestructiveAction: true,
             onPressed: () { Navigator.pop(ctx); _deleteTransaction(tx); },
             child: const Text('Delete'),
@@ -166,6 +170,80 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showLinkToBill(ApiTransaction tx) async {
+    List<ApiBill> bills = [];
+    try { bills = await widget.api.getBills(); } catch (_) {}
+    final unpaid = bills.where((b) => !b.isPaidThisMonth).toList();
+    if (unpaid.isEmpty) {
+      if (!mounted) return;
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (d) => CupertinoAlertDialog(
+          title: const Text('No Unpaid Bills'),
+          content: const Text('All bills are already paid this month.'),
+          actions: [CupertinoDialogAction(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    ApiBill? selected;
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => Container(
+        height: 300,
+        color: AppTheme.surface,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Text('Link to which bill?',
+                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: CupertinoPicker(
+              itemExtent: 40,
+              onSelectedItemChanged: (i) => selected = unpaid[i],
+              children: unpaid.map((b) => Center(
+                child: Text(
+                  b.amount != null ? '${b.name}  (${_usd.format(b.amount!)})' : b.name,
+                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
+              )).toList(),
+            ),
+          ),
+          CupertinoButton(
+            child: const Text('Link'),
+            onPressed: () { selected ??= unpaid.first; Navigator.pop(ctx); },
+          ),
+        ]),
+      ),
+    );
+    final bill = selected ?? unpaid.first;
+    try {
+      await widget.api.linkTransactionToBill(bill.id, transactionId: tx.id, amount: tx.amount);
+      if (!mounted) return;
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (d) => CupertinoAlertDialog(
+          title: const Text('Linked'),
+          content: Text('"${tx.description}" linked to "${bill.name}"'),
+          actions: [CupertinoDialogAction(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (d) => CupertinoAlertDialog(
+          title: const Text('Error'),
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          actions: [CupertinoDialogAction(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+        ),
+      );
+    }
   }
 
   void _showEditSheet(ApiTransaction tx) {

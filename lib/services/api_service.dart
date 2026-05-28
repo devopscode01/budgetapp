@@ -227,6 +227,20 @@ class ApiService {
 
   Future<void> deleteBill(int id) => _delete('/api/bills/$id');
 
+  Future<ApiBill> linkTransactionToBill(int billId, {required int transactionId, required double amount}) async {
+    final data = await _post('/api/bills/$billId/link-transaction', {
+      'transactionId': transactionId,
+      'amount':        amount,
+    }) as Map<String, dynamic>;
+    return ApiBill.fromJson(data);
+  }
+
+  Future<List<ApiTransaction>> searchTransactions(String q) async {
+    if (q.trim().isEmpty) return [];
+    final data = await _get('/api/expenses/search?q=${Uri.encodeQueryComponent(q)}') as List;
+    return data.map((e) => ApiTransaction.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   // LLM
   Future<LlmConfig> getLlmConfig() async {
     final data = await _get('/api/llm/config') as Map<String, dynamic>;

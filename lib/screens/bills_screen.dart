@@ -292,6 +292,42 @@ class _BillsScreenState extends State<BillsScreen> {
     );
   }
 
+  void _showBillActions(ApiBill bill) {
+    if (bill.isPaidThisMonth) return;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: Text(bill.name),
+        message: Text(bill.amount != null ? _usd.format(bill.amount!) : 'Variable amount'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () { Navigator.pop(ctx); _acknowledge(bill); },
+            child: const Text('Mark as Paid'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showLinkTransactionSheet(bill);
+            },
+            child: const Text('Link Transaction'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLinkTransactionSheet(ApiBill bill) async {
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => _LinkTransactionSheet(api: widget.api, bill: bill),
+    );
+    await _load();
+  }
+
   Future<void> _acknowledge(ApiBill bill) async {
     if (bill.isPaidThisMonth) return;
 
@@ -502,21 +538,21 @@ class _BillsScreenState extends State<BillsScreen> {
                               if (overdue.isNotEmpty) ...[
                                 _SectionHeader('Overdue', color: AppTheme.spend),
                                 ...overdue.map((b) => _BillCard(
-                                    bill: b, onTap: () => _acknowledge(b),
+                                    bill: b, onTap: () => _showBillActions(b),
                                     onEdit: () => _showBillSheet(b), onDelete: () => _delete(b))),
                                 const SizedBox(height: 12),
                               ],
                               if (dueSoon.isNotEmpty) ...[
                                 _SectionHeader('Due Soon', color: const Color(0xFFF97316)),
                                 ...dueSoon.map((b) => _BillCard(
-                                    bill: b, onTap: () => _acknowledge(b),
+                                    bill: b, onTap: () => _showBillActions(b),
                                     onEdit: () => _showBillSheet(b), onDelete: () => _delete(b))),
                                 const SizedBox(height: 12),
                               ],
                               if (upcoming.isNotEmpty) ...[
                                 _SectionHeader('Upcoming'),
                                 ...upcoming.map((b) => _BillCard(
-                                    bill: b, onTap: () => _acknowledge(b),
+                                    bill: b, onTap: () => _showBillActions(b),
                                     onEdit: () => _showBillSheet(b), onDelete: () => _delete(b))),
                                 const SizedBox(height: 12),
                               ],
@@ -660,6 +696,152 @@ class _BillCard extends StatelessWidget {
             ]),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+// ── Link Transaction Sheet ────────────────────────────────────────────────────
+
+class _LinkTransactionSheet extends StatefulWidget {
+  final ApiService api;
+  final ApiBill bill;
+  const _LinkTransactionSheet({required this.api, required this.bill});
+
+  @override
+  State<_LinkTransactionSheet> createState() => _LinkTransactionSheetState();
+}
+
+class _LinkTransactionSheetState extends State<_LinkTransactionSheet> {
+  final _searchCtrl = TextEditingController();
+  List<ApiTransaction> _results = [];
+  bool _searching = false;
+  bool _linking = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-populate search with bill name keywords
+    _searchCtrl.text = widget.bill.name.split(' ').first;
+    _doSearch(_searchCtrl.text);
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _doSearch(String q) async {
+    if (q.trim().isEmpty) { setState(() => _results = []); return; }
+    setState(() { _searching = true; _error = null; });
+    try {
+      final results = await widget.api.searchTransactions(q);
+      if (mounted) setState(() => _results = results);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  Future<void> _link(ApiTransaction tx) async {
+    setState(() { _linking = true; _error = null; });
+    try {
+      await widget.api.linkTransactionToBill(widget.bill.id,
+          transactionId: tx.id, amount: tx.amount);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _linking = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(children: [
+              Expanded(child: Text('Link to: ${widget.bill.name}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                  maxLines: 1, overflow: TextOverflow.ellipsis)),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => Navigator.pop(context),
+                child: const Icon(CupertinoIcons.xmark_circle_fill, color: AppTheme.textSecondary),
+              ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: CupertinoTextField(
+              controller: _searchCtrl,
+              placeholder: 'Search transactions…',
+              prefix: const Padding(padding: EdgeInsets.only(left: 10),
+                  child: Icon(CupertinoIcons.search, color: AppTheme.textSecondary, size: 16)),
+              autofocus: false,
+              style: const TextStyle(color: AppTheme.textPrimary),
+              placeholderStyle: const TextStyle(color: AppTheme.textSecondary),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
+              onChanged: (v) => _doSearch(v),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(_error!, style: const TextStyle(color: AppTheme.spend, fontSize: 13)),
+            ),
+          if (_searching)
+            const Padding(padding: EdgeInsets.all(20), child: CupertinoActivityIndicator()),
+          if (!_searching && _results.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('No transactions found', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _results.length,
+              itemBuilder: (_, i) {
+                final tx = _results[i];
+                return GestureDetector(
+                  onTap: _linking ? null : () => _link(tx),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                        color: AppTheme.background, borderRadius: BorderRadius.circular(10)),
+                    child: Row(children: [
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(tx.description,
+                            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text('${tx.category} · ${tx.date}',
+                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                      ])),
+                      const SizedBox(width: 8),
+                      Text(_usd.format(tx.amount),
+                          style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 14)),
+                      const SizedBox(width: 6),
+                      const Icon(CupertinoIcons.link, color: AppTheme.primary, size: 16),
+                    ]),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (_linking) const Padding(padding: EdgeInsets.all(12), child: CupertinoActivityIndicator()),
+        ]),
       ),
     );
   }

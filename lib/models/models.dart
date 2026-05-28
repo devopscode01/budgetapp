@@ -201,14 +201,16 @@ class ApiBillPaymentInfo {
   final double amount;
   final String acknowledgedAt;
   final String by;
+  final int? linkedTransactionId;
 
-  ApiBillPaymentInfo({required this.id, required this.amount, required this.acknowledgedAt, required this.by});
+  ApiBillPaymentInfo({required this.id, required this.amount, required this.acknowledgedAt, required this.by, this.linkedTransactionId});
 
   factory ApiBillPaymentInfo.fromJson(Map<String, dynamic> j) => ApiBillPaymentInfo(
-        id:             j['id'] as int,
-        amount:         (j['amount'] as num).toDouble(),
-        acknowledgedAt: j['acknowledgedAt'] as String,
-        by:             j['by'] as String? ?? '',
+        id:                   j['id'] as int,
+        amount:               (j['amount'] as num).toDouble(),
+        acknowledgedAt:       j['acknowledgedAt'] as String,
+        by:                   j['by'] as String? ?? '',
+        linkedTransactionId:  j['linkedTransactionId'] as int?,
       );
 }
 
