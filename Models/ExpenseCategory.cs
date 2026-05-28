@@ -24,5 +24,8 @@ public enum ExpenseCategory
     ChaseCredit = 13,
 
     /// <summary>Texans Credit Union payment or transfer.</summary>
-    TexansCreditUnion = 14
+    TexansCreditUnion = 14,
+
+    /// <summary>Nebraska Furniture Mart credit card payment.</summary>
+    NebraskaFurnitureMart = 15
 }

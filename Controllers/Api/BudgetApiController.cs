@@ -521,8 +521,9 @@ public sealed class BudgetApiController(
         ExpenseCategory.Savings       => "#059669",
         ExpenseCategory.Income            => "#22C55E",
         ExpenseCategory.Other             => "#64748B",
-        ExpenseCategory.ChaseCredit       => "#1A56DB",
-        ExpenseCategory.TexansCreditUnion => "#0E9F6E",
+        ExpenseCategory.ChaseCredit           => "#1A56DB",
+        ExpenseCategory.TexansCreditUnion     => "#0E9F6E",
+        ExpenseCategory.NebraskaFurnitureMart => "#B45309",
         _                                 => "#94A3B8"
     };
 }

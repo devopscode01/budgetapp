@@ -24,7 +24,8 @@ public sealed class ExpenseClassifier(IOptions<BudgetOptions> options)
         (@"(UBER\s*TRIP|LYFT|SHELL|CHEVRON|EXXON|PARKING|MTA|METRO)", ExpenseCategory.Transport),
         (@"(PHARMACY|CVS|WALGREENS|RITE\s*AID|HOSPITAL|CLINIC|DENTAL|DOCTOR)", ExpenseCategory.Healthcare),
         (@"(CHASE\s*CREDIT|CHASE\s*CRD|CHASE\s*CARD|CHASE\s*EPAY)", ExpenseCategory.ChaseCredit),
-        (@"(TEXANS\s*CU|TEXANS\s*CREDIT|TEXANS\s*FED|TEXANS\s*FCU|TEXANSCREDIT)", ExpenseCategory.TexansCreditUnion)
+        (@"(TEXANS\s*CU|TEXANS\s*CREDIT|TEXANS\s*FED|TEXANS\s*FCU|TEXANSCREDIT)", ExpenseCategory.TexansCreditUnion),
+        (@"(NEFURNMART|NFMCARDPMT|NEBRASKA\s*FURN|NE\s*FURNITURE)", ExpenseCategory.NebraskaFurnitureMart)
     ];
 
     private static readonly Regex[] Compiled = Rules
