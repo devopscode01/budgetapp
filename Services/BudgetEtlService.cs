@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using BudgetApp.Data;
 using BudgetApp.Models;
 using BudgetApp.Options;
@@ -429,7 +430,9 @@ public sealed class BudgetEtlService(
                 : classifier.Classify(line.Description, expenseAmount, source);
             var hash = ExpenseClassifier.ComputeDedupeHash(line.Date, expenseAmount, line.Description, sourceRef, userId);
             var clampedDesc = ClampForParsedDescription(line.Description);
-            var contentKey = $"{line.Date:O}|{expenseAmount.ToString(CultureInfo.InvariantCulture)}|{clampedDesc.ToUpperInvariant()}|{userId}";
+            var descPrefix = DescDedupePrefix(clampedDesc);
+            var contentKey = $"{line.Date:O}|{expenseAmount.ToString(CultureInfo.InvariantCulture)}|{descPrefix}|{userId}";
+            var likePattern = descPrefix.Replace("%", @"\%") + "%";
 
             if (pendingHashes.Contains(hash) ||
                 pendingContentKeys.Contains(contentKey) ||
@@ -438,7 +441,12 @@ public sealed class BudgetEtlService(
                     t.UserId == userId &&
                     t.PostedDate == line.Date &&
                     t.Amount == expenseAmount &&
-                    t.Description == clampedDesc, ct).ConfigureAwait(false))
+                    t.Description == clampedDesc, ct).ConfigureAwait(false) ||
+                await db.ParsedTransactions.AnyAsync(t =>
+                    t.UserId == userId &&
+                    t.PostedDate == line.Date &&
+                    t.Amount == expenseAmount &&
+                    EF.Functions.Like(t.Description, likePattern), ct).ConfigureAwait(false))
             {
                 skipped++;
                 continue;
@@ -558,6 +566,17 @@ public sealed class BudgetEtlService(
 
             log.AppendLine($"Auto-matched bill \"{bill.Name}\" to transaction \"{matched.Description}\" (${amount:F2})");
         }
+    }
+
+    // Strips BofA TXT reference numbers (e.g. " #000331462") and ACH trailing codes,
+    // then returns the first 20 uppercase chars for cross-source dedup.
+    private static readonly Regex TxRefPattern = new(@"\s+#\d{5,}", RegexOptions.Compiled);
+    private static string DescDedupePrefix(string desc)
+    {
+        var s = TxRefPattern.Replace(desc, " ");
+        s = Regex.Replace(s, @"\s+", " ").Trim();
+        const int maxPrefix = 20;
+        return (s.Length > maxPrefix ? s[..maxPrefix] : s).ToUpperInvariant();
     }
 
     private static string ClampForParsedDescription(string description)
