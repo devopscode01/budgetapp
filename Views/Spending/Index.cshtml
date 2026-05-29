@@ -191,9 +191,13 @@
 
 @* ── Transactions ─────────────────────────────── *@
 <div class="card mb-4">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
         <div class="section-title mb-0">Statement Transactions</div>
-        <small style="color:var(--tf)">@Model.Transactions.Count items</small>
+        <div class="d-flex align-items-center gap-2">
+            <input type="search" id="txSearch" class="form-control form-control-sm"
+                   placeholder="Search…" style="width:160px" autocomplete="off">
+            <small style="color:var(--tf)" id="txCount">@Model.Transactions.Count items</small>
+        </div>
     </div>
     @if (!Model.Transactions.Any())
     {
@@ -204,7 +208,7 @@
     else
     {
         <div class="table-responsive">
-            <table class="table budget-table mb-0">
+            <table class="table budget-table mb-0" id="txTable">
                 <thead>
                     <tr>
                         <th>Date</th>
@@ -218,8 +222,8 @@
                     @foreach (var tx in Model.Transactions)
                     {
                         var txCat = CatLabel(tx.Category);
-                        var txHide = activeCategory != null && txCat != activeCategory ? "style=\"display:none\"" : "";
-                        <tr data-cat="@txCat" @Html.Raw(txHide)>
+                        var txCatVisible = activeCategory == null || txCat == activeCategory ? "1" : "0";
+                        <tr data-cat="@txCat" data-catvisible="@txCatVisible" data-desc="@tx.Description.ToLowerInvariant()">
                             <td class="text-nowrap" style="color:var(--tf)">@tx.PostedDate.ToString("MMM d")</td>
                             <td style="max-width:260px" class="text-truncate">@tx.Description</td>
                             <td>
@@ -357,5 +361,29 @@ document.querySelectorAll('.recategorize-btn').forEach(function(btn) {
         new bootstrap.Modal(document.getElementById('editModal')).show();
     });
 });
+
+// Transaction search
+(function() {
+    var searchInput = document.getElementById('txSearch');
+    var countLabel  = document.getElementById('txCount');
+    if (!searchInput) return;
+
+    function applyFilter() {
+        var q = searchInput.value.toLowerCase().trim();
+        var rows = document.querySelectorAll('#txTable tbody tr[data-catvisible]');
+        var visible = 0;
+        rows.forEach(function(row) {
+            var catOk  = row.dataset.catvisible !== '0';
+            var descOk = !q || (row.dataset.desc || '').indexOf(q) >= 0;
+            var show   = catOk && descOk;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        if (countLabel) countLabel.textContent = visible + ' item' + (visible !== 1 ? 's' : '');
+    }
+
+    searchInput.addEventListener('input', applyFilter);
+    applyFilter(); // apply initial category visibility
+})();
 </script>
 }
