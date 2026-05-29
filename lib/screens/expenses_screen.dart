@@ -24,6 +24,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
   String? _selectedYm;
   bool _loading = true;
   String? _error;
+  String _searchQuery = '';
+  String? _activeCategoryFilter;
 
   // Dynamic categories loaded from API (excludes Income, id=11)
   List<({int id, String name})> _loadedCategories = _kFallbackCategories;
@@ -60,8 +62,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
       final summary = ym != null ? await widget.api.getSummary(ym) : null;
       setState(() {
         _months = months;
+        final monthChanged = ym != _selectedYm;
         _selectedYm = ym;
         _summary = summary;
+        if (monthChanged) { _searchQuery = ''; _activeCategoryFilter = null; }
       });
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -373,8 +377,43 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     );
   }
 
+  List<ApiTransaction> get _filteredTxs {
+    var txs = _summary!.transactions;
+    if (_activeCategoryFilter != null) {
+      txs = txs.where((t) => t.category == _activeCategoryFilter).toList();
+    }
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      txs = txs.where((t) => t.description.toLowerCase().contains(q)).toList();
+    }
+    return txs;
+  }
+
+  Widget _buildCatChip(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? AppTheme.primary : AppTheme.surface,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              fontSize: 12,
+              color: active ? CupertinoColors.white : AppTheme.textSecondary,
+              fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            )),
+      ),
+    );
+  }
+
   Widget _buildBody() {
-    final txs = _summary!.transactions;
+    final allTxs = _summary!.transactions;
+    final uniqueCategories = allTxs.map((t) => t.category).toSet().toList()..sort();
+    final txs = _filteredTxs;
+
     return CustomScrollView(
       slivers: [
         CupertinoSliverRefreshControl(onRefresh: _load),
@@ -388,16 +427,46 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             ]),
           ),
         ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: CupertinoSearchTextField(
+              placeholder: 'Search transactions…',
+              onChanged: (v) => setState(() => _searchQuery = v),
+              style: const TextStyle(color: AppTheme.textPrimary),
+            ),
+          ),
+        ),
+        if (uniqueCategories.isNotEmpty)
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 36,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  _buildCatChip('All', _activeCategoryFilter == null,
+                      () => setState(() => _activeCategoryFilter = null)),
+                  ...uniqueCategories.map((cat) => _buildCatChip(
+                        cat,
+                        _activeCategoryFilter == cat,
+                        () => setState(() =>
+                            _activeCategoryFilter = _activeCategoryFilter == cat ? null : cat),
+                      )),
+                ],
+              ),
+            ),
+          ),
         if (txs.isEmpty)
           const SliverFillRemaining(
-            child: Center(child: Text('No transactions this month',
+            child: Center(child: Text('No transactions',
                 style: TextStyle(color: AppTheme.textSecondary))),
           )
         else ...[
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Text('${txs.length} transactions',
+              child: Text('${txs.length} transaction${txs.length != 1 ? 's' : ''}',
                   style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
             ),
           ),
