@@ -7,21 +7,35 @@
     var userCategories = ViewBag.UserCategories as List<BudgetApp.Models.UserCategory> ?? new();
 
 
-    string CatColor(ExpenseCategory c) => c switch {
-        ExpenseCategory.Mortgage      => "#5B6EF7",
-        ExpenseCategory.Utilities     => "#14B8A6",
-        ExpenseCategory.Water         => "#06B6D4",
-        ExpenseCategory.Groceries     => "#10B981",
-        ExpenseCategory.Dining        => "#F97316",
-        ExpenseCategory.Insurance     => "#F59E0B",
-        ExpenseCategory.Transport     => "#8B5CF6",
-        ExpenseCategory.Subscriptions => "#6366F1",
-        ExpenseCategory.Healthcare    => "#EF4444",
-        ExpenseCategory.Savings       => "#059669",
-        ExpenseCategory.Other         => "#64748B",
-        _                             => "#94A3B8"
-    };
-    string CatLabel(ExpenseCategory c) => c == ExpenseCategory.Uncategorized ? "Other" : c.ToString();
+    string CatColor(ExpenseCategory c) {
+        var id = (int)c;
+        if (id >= 100) {
+            var uc = userCategories.FirstOrDefault(x => x.Id == id);
+            return uc?.Color ?? "#94A3B8";
+        }
+        return c switch {
+            ExpenseCategory.Mortgage      => "#5B6EF7",
+            ExpenseCategory.Utilities     => "#14B8A6",
+            ExpenseCategory.Water         => "#06B6D4",
+            ExpenseCategory.Groceries     => "#10B981",
+            ExpenseCategory.Dining        => "#F97316",
+            ExpenseCategory.Insurance     => "#F59E0B",
+            ExpenseCategory.Transport     => "#8B5CF6",
+            ExpenseCategory.Subscriptions => "#6366F1",
+            ExpenseCategory.Healthcare    => "#EF4444",
+            ExpenseCategory.Savings       => "#059669",
+            ExpenseCategory.Other         => "#64748B",
+            _                             => "#94A3B8"
+        };
+    }
+    string CatLabel(ExpenseCategory c) {
+        var id = (int)c;
+        if (id >= 100) {
+            var uc = userCategories.FirstOrDefault(x => x.Id == id);
+            return uc?.Name ?? id.ToString();
+        }
+        return c == ExpenseCategory.Uncategorized ? "Other" : c.ToString();
+    }
 
     var spendCats = Model.CategoryTotals
         .Where(c => c.Category != ExpenseCategory.Income)
