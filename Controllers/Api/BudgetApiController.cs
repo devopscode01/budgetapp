@@ -160,18 +160,32 @@ public sealed class BudgetApiController(
         // Previous month for delta comparison
         var prevVm = await spending.GetMonthAsync(month.AddMonths(-1), hids, ct).ConfigureAwait(false);
 
+        var userCatMap = await db.UserCategories
+            .Where(c => c.UserId == currentUser.UserId)
+            .AsNoTracking()
+            .ToDictionaryAsync(c => c.Id, ct).ConfigureAwait(false);
+
+        string ResolveCatName(ExpenseCategory c) {
+            var id = (int)c;
+            return id >= 100 && userCatMap.TryGetValue(id, out var uc) ? uc.Name : c.ToString();
+        }
+        string ResolveCatColor(ExpenseCategory c) {
+            var id = (int)c;
+            return id >= 100 && userCatMap.TryGetValue(id, out var uc) ? uc.Color : CatColor(c);
+        }
+
         var txDtos = vm.Transactions.Take(200).Select(t => new ApiTransaction(
             t.Id, t.PostedDate.ToString("yyyy-MM-dd"),
             t.Alias ?? t.Description,
             t.Alias != null ? t.Description : null,
-            t.Category.ToString(), CatColor(t.Category), t.Amount)).ToList();
+            ResolveCatName(t.Category), ResolveCatColor(t.Category), t.Amount)).ToList();
 
         var total = vm.TotalSpend > 0 ? vm.TotalSpend : 1m;
         var catDtos = vm.CategoryTotals
             .Where(c => c.Category != ExpenseCategory.Income)
             .OrderByDescending(c => c.Amount)
             .Select(c => new ApiCategory(
-                c.Category.ToString(), CatColor(c.Category), c.Amount, c.Count,
+                ResolveCatName(c.Category), ResolveCatColor(c.Category), c.Amount, c.Count,
                 (int)Math.Round(c.Amount / total * 100))).ToList();
 
         return Ok(new ApiMonthSummary(vm.MonthYm, vm.MonthLabel,
@@ -192,9 +206,13 @@ public sealed class BudgetApiController(
         tx.CategoryOverridden = true;
         await spending.SaveAsync(ct).ConfigureAwait(false);
         var display = tx.Alias ?? tx.Description;
+        var catId = (int)tx.Category;
+        var ucEntry = catId >= 100 ? await db.UserCategories.FindAsync(new object[] { catId }, ct).ConfigureAwait(false) : null;
+        var catName  = ucEntry?.Name  ?? tx.Category.ToString();
+        var catColor = ucEntry?.Color ?? CatColor(tx.Category);
         return Ok(new ApiTransaction(tx.Id, tx.PostedDate.ToString("yyyy-MM-dd"), display,
             tx.Alias != null ? tx.Description : null,
-            tx.Category.ToString(), CatColor(tx.Category), tx.Amount));
+            catName, catColor, tx.Amount));
     }
 
     [HttpPost("transactions/{id:int}/suggest-alias")]
