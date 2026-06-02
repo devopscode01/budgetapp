@@ -369,12 +369,7 @@ public sealed class BudgetEtlService(
             }
 
             var destPath = Path.Combine(destDir, name);
-            if (File.Exists(destPath))
-            {
-                messages.Add($"Skipped (file already exists in this folder — delete or rename it first): {name}");
-                skipped++;
-                continue;
-            }
+            var replaced = File.Exists(destPath);
 
             await using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, true))
             {
@@ -382,7 +377,8 @@ public sealed class BudgetEtlService(
             }
 
             saved++;
-            messages.Add($"Saved {NormalizeRelativePath(Path.GetRelativePath(inboxFull, destPath))}");
+            var rel = NormalizeRelativePath(Path.GetRelativePath(inboxFull, destPath));
+            messages.Add(replaced ? $"Updated (replaced existing): {rel}" : $"Saved {rel}");
         }
 
         return new PdfUploadResult(saved, skipped, messages);
