@@ -34,6 +34,7 @@ public sealed class ImportVm
     public bool? ResultSuccess { get; init; }
     public int TransactionsImported { get; init; }
     public int TransactionsSkipped { get; init; }
+    public string? EtlLog { get; init; }
     public IReadOnlyList<string> AvailableMonths { get; init; } = [];
 }
 

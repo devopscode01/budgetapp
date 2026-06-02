@@ -11,7 +11,9 @@ public sealed class LlmService(IHttpClientFactory httpFactory, ILogger<LlmServic
         "Return ONLY a JSON array, no markdown, no explanation. " +
         "Each element must have: date (YYYY-MM-DD string), description (string), amount (number). " +
         "Use negative amounts for debits/expenses and positive for credits/income. " +
-        "Skip headers, balance rows, and summary rows — only actual posted transactions.";
+        "Copy each description EXACTLY as it appears on the statement — do not normalize, shorten, or rename merchants. " +
+        "Skip headers, balance rows, and summary rows — only actual posted transactions. " +
+        "Include every transaction visible in the image; do not stop early.";
 
     public async Task<(string? Content, string? Error)> AnalyzeAsync(LlmConfig config, string prompt, CancellationToken ct)
     {
@@ -83,8 +85,9 @@ public sealed class LlmService(IHttpClientFactory httpFactory, ILogger<LlmServic
         var base64 = Convert.ToBase64String(imageBytes);
         var body = JsonSerializer.Serialize(new
         {
-            model    = config.Model,
-            messages = new[]
+            model      = config.Model,
+            max_tokens = 4096,
+            messages   = new[]
             {
                 new
                 {
@@ -134,7 +137,8 @@ public sealed class LlmService(IHttpClientFactory httpFactory, ILogger<LlmServic
                         new { text = OcrPrompt }
                     }
                 }
-            }
+            },
+            generationConfig = new { maxOutputTokens = 4096 }
         });
 
         using var http = httpFactory.CreateClient();

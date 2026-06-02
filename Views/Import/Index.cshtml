@@ -20,7 +20,14 @@
 {
     var alertClass = Model.ResultSuccess == true ? "alert-success" : Model.ResultSuccess == false ? "alert-danger" : "alert-info";
     <div class="alert @alertClass alert-dismissible fade show mb-4" role="alert">
-        @Model.ResultMessage
+        <div>@Model.ResultMessage</div>
+        @if (!string.IsNullOrWhiteSpace(Model.EtlLog))
+        {
+            <details class="mt-2">
+                <summary style="font-size:.8rem;cursor:pointer;opacity:.8">Import details</summary>
+                <pre class="mt-1 mb-0" style="font-size:.75rem;white-space:pre-wrap;opacity:.9">@Model.EtlLog</pre>
+            </details>
+        }
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
 }

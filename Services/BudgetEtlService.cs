@@ -254,12 +254,12 @@ public sealed class BudgetEtlService(
                     log.AppendLine($"WARN: Unknown source, using generic parser: {relFromInbox}");
 
                 var lines = StatementLineParser.Parse(source, text, year);
-                log.AppendLine($"{relFromInbox}: parsed {lines.Count} lines ({source})");
 
                 var (linesInserted, linesSkipped) = await PersistLinesAsync(
                     lines, source, relFromInbox, userId, pendingHashes, pendingContentKeys, ct).ConfigureAwait(false);
                 run.TransactionsInserted += linesInserted;
                 run.TransactionsSkippedDuplicate += linesSkipped;
+                log.AppendLine($"{relFromInbox}: {lines.Count} parsed ({source}) → {linesInserted} new, {linesSkipped} duplicate");
 
                 if (_opt.MoveFilesAfterImport)
                 {
