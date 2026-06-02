@@ -172,12 +172,16 @@ a:hover { color: var(--brand-hover); }
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--t1);
-    padding: .3125rem .625rem;
+    padding: .3125rem 1.75rem .3125rem .625rem;
     outline: none;
     cursor: pointer;
-    max-width: 145px;
+    max-width: 160px;
     transition: border-color var(--transition);
-    colorscheme: light dark;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right .5rem center;
 }
 .month-picker:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-subtle); }
 

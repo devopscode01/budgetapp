@@ -43,11 +43,7 @@
     </div>
 
     <div class="nav-right">
-        <input type="month"
-               id="monthPicker"
-               class="month-picker"
-               value="@(ViewBag.MonthYm ?? ViewData["MonthYm"] ?? "")"
-               title="Select month" />
+        <select id="monthPicker" class="month-picker" title="Select month"></select>
 
         @if (User.Identity?.IsAuthenticated == true)
         {
@@ -116,8 +112,7 @@
     }
     <div class="mobile-month-row">
         <label for="monthPickerMobile" style="font-size:.8125rem;color:var(--tm);font-weight:500;">Month</label>
-        <input type="month" id="monthPickerMobile" class="month-picker"
-               value="@(ViewBag.MonthYm ?? ViewData["MonthYm"] ?? "")" />
+        <select id="monthPickerMobile" class="month-picker"></select>
     </div>
 </div>
 
@@ -130,19 +125,88 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
 (function () {
-    function gotoMonth(ym) {
-        if (!ym) return;
-        var url = new URL(window.location.href);
-        url.searchParams.set('ym', ym);
-        window.location.href = url.toString();
+    var STORE = 'bgt-ym';
+    // Pages that accept a ?ym parameter
+    var YM_PATHS = ['/', '/dashboard', '/spending', '/manual', '/import'];
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function fmtYm(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+    function labelYm(ym) {
+        var p = ym.split('-');
+        return new Date(+p[0], +p[1] - 1, 1)
+            .toLocaleString('en-US', { month: 'long', year: 'numeric' });
     }
 
-    var picker = document.getElementById('monthPicker');
-    if (picker) picker.addEventListener('change', function () { gotoMonth(picker.value); });
+    function buildMonths() {
+        var now = new Date(), out = [];
+        // Start 1 month ahead, go back 3 years
+        var d = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+        var stop = new Date(now.getFullYear() - 3, now.getMonth() - 1, 1);
+        while (d > stop) {
+            d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+            out.push(fmtYm(d));
+        }
+        return out;
+    }
 
-    var pickerM = document.getElementById('monthPickerMobile');
-    if (pickerM) pickerM.addEventListener('change', function () { gotoMonth(pickerM.value); });
+    function fillSelect(sel, active) {
+        buildMonths().forEach(function (ym) {
+            var o = document.createElement('option');
+            o.value = ym; o.text = labelYm(ym);
+            if (ym === active) o.selected = true;
+            sel.appendChild(o);
+        });
+    }
 
+    function gotoMonth(ym) {
+        if (!ym) return;
+        localStorage.setItem(STORE, ym);
+        var u = new URL(window.location.href);
+        u.searchParams.set('ym', ym);
+        window.location.href = u.toString();
+    }
+
+    function isYmPage(pathname) {
+        var p = pathname.replace(/\/+$/, '').toLowerCase() || '/';
+        return YM_PATHS.some(function (x) { return p === x || p.startsWith(x + '/'); });
+    }
+
+    // Determine active month: URL param > localStorage > today
+    var urlYm = new URLSearchParams(window.location.search).get('ym') || '';
+    var stored = localStorage.getItem(STORE) || '';
+    var active = urlYm || stored || fmtYm(new Date());
+    if (urlYm) localStorage.setItem(STORE, urlYm);
+
+    // Session persistence: if this page supports ?ym but URL has none, redirect once
+    if (!urlYm && stored && isYmPage(window.location.pathname)) {
+        var ru = new URL(window.location.href);
+        ru.searchParams.set('ym', stored);
+        window.location.replace(ru.toString());
+        return; // stop — new page will re-run this script with ym in URL
+    }
+
+    // Populate both selects
+    ['monthPicker', 'monthPickerMobile'].forEach(function (id) {
+        var sel = document.getElementById(id);
+        if (!sel) return;
+        fillSelect(sel, active);
+        sel.addEventListener('change', function () { gotoMonth(sel.value); });
+    });
+
+    // Rewrite ym-aware nav links so clicking them keeps the selected month
+    document.querySelectorAll('a.nav-link, a.mobile-nav-link').forEach(function (a) {
+        var href = a.getAttribute('href');
+        if (!href || /^(https?:\/\/|#|mailto:)/.test(href)) return;
+        try {
+            var u = new URL(href, location.origin);
+            if (isYmPage(u.pathname) && !u.searchParams.has('ym')) {
+                u.searchParams.set('ym', active);
+                a.setAttribute('href', u.pathname + u.search);
+            }
+        } catch (e) {}
+    });
+
+    // Theme toggle
     var btn = document.getElementById('themeToggle');
     if (btn) {
         btn.addEventListener('click', function () {
@@ -154,6 +218,7 @@
         });
     }
 
+    // Hamburger menu
     var ham = document.getElementById('navHamburger');
     var menu = document.getElementById('mobileMenu');
     if (ham && menu) {
