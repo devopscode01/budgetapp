@@ -1,0 +1,121 @@
+@model BudgetApp.ViewModels.MonthSpendingVm
+@using BudgetApp.Models
+@{
+    Layout = null;
+    var sharedBy = ViewBag.SharedByName as string ?? "Someone";
+    var expires  = (DateTime)ViewBag.ExpiresUtc;
+    var spendCats = Model.CategoryTotals
+        .Where(c => c.Category != ExpenseCategory.Income)
+        .OrderByDescending(c => c.Amount)
+        .ToList();
+}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@Model.MonthLabel Budget Report</title>
+    <link rel="stylesheet" href="/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="/css/app.css" asp-append-version="true" />
+    <style>
+        body { background: var(--surface-1); }
+        .report-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; }
+        .stat-value { font-size: 1.75rem; font-weight: 700; letter-spacing: -.03em; }
+        .shared-banner { background: var(--brand-subtle); border-radius: var(--radius); padding: .625rem 1rem; font-size: .8125rem; }
+    </style>
+</head>
+<body>
+<div class="page" style="max-width:720px;margin:0 auto;padding:1.5rem 1rem">
+
+    <div class="shared-banner mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="margin-right:.25rem;vertical-align:-.1em">
+                <path d="M8 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM3 13c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            Shared by <strong>@sharedBy</strong>
+        </span>
+        <span style="color:var(--tm)">Link expires @expires.ToString("MMM d, yyyy")</span>
+    </div>
+
+    <h3 class="fw-bold mb-1" style="letter-spacing:-.02em">@Model.MonthLabel Budget Report</h3>
+    <p class="mb-4" style="color:var(--tm);font-size:.875rem">Monthly summary</p>
+
+    @* ── Key stats ── *@
+    <div class="row g-3 mb-4">
+        <div class="col-4">
+            <div class="report-card text-center">
+                <div style="font-size:.75rem;font-weight:600;color:var(--tm);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.25rem">Income</div>
+                <div class="stat-value" style="color:#10B981">@Model.TotalIncome.ToString("C0")</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="report-card text-center">
+                <div style="font-size:.75rem;font-weight:600;color:var(--tm);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.25rem">Spent</div>
+                <div class="stat-value">@Model.TotalSpend.ToString("C0")</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="report-card text-center">
+                <div style="font-size:.75rem;font-weight:600;color:var(--tm);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.25rem">Balance</div>
+                <div class="stat-value" style="color:@(Model.NetBalance >= 0 ? "#10B981" : "#EF4444")">
+                    @(Model.NetBalance >= 0 ? "+" : "")@Model.NetBalance.ToString("C0")
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── Spending by category ── *@
+    @if (spendCats.Any())
+    {
+        <div class="report-card mb-4">
+            <h6 class="fw-semibold mb-3" style="font-size:.8125rem;text-transform:uppercase;letter-spacing:.04em;color:var(--tm)">Spending by Category</h6>
+            @foreach (var cat in spendCats)
+            {
+                var pct = Model.TotalSpend > 0 ? (double)(cat.Amount / Model.TotalSpend * 100) : 0;
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between align-items-baseline mb-1">
+                        <span style="font-size:.875rem;font-weight:500">@(cat.Category == ExpenseCategory.Uncategorized ? "Other" : cat.Category.ToString())</span>
+                        <span style="font-size:.875rem;font-weight:600">@cat.Amount.ToString("C0")</span>
+                    </div>
+                    <div style="height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden">
+                        <div style="height:100%;width:@pct.ToString("F1")%;background:var(--brand);border-radius:3px"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @* ── Top transactions ── *@
+    @{
+        var topTxns = Model.Transactions
+            .Where(t => t.Category != ExpenseCategory.Income)
+            .OrderByDescending(t => t.Amount)
+            .Take(10)
+            .ToList();
+    }
+    @if (topTxns.Any())
+    {
+        <div class="report-card">
+            <h6 class="fw-semibold mb-3" style="font-size:.8125rem;text-transform:uppercase;letter-spacing:.04em;color:var(--tm)">Top Transactions</h6>
+            <table class="table table-sm mb-0" style="font-size:.875rem">
+                <tbody>
+                    @foreach (var t in topTxns)
+                    {
+                        <tr>
+                            <td style="color:var(--tm)">@t.PostedDate.ToString("MMM d")</td>
+                            <td>@t.Description</td>
+                            <td class="text-end fw-semibold">@t.Amount.ToString("C")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <p class="text-center mt-4" style="font-size:.75rem;color:var(--tm)">
+        Generated with <strong>Budget</strong> · @DateTime.UtcNow.ToString("MMM d, yyyy")
+    </p>
+</div>
+<script src="/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

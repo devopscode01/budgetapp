@@ -13,7 +13,13 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
     [HttpGet]
     public async Task<IActionResult> Index(string? ym, CancellationToken ct)
     {
-        var vm = await BuildVmAsync(ym, null, null, 0, 0, null, ct).ConfigureAwait(false);
+        string? msg     = TempData["ImportMsg"]     as string;
+        bool?   success = TempData["ImportSuccess"] is bool b ? b : null;
+        int     count   = TempData["ImportCount"]   is int c  ? c : 0;
+        int     skipped = TempData["ImportSkipped"] is int s  ? s : 0;
+        string? log     = TempData["ImportLog"]     as string;
+
+        var vm = await BuildVmAsync(ym, msg, success, count, skipped, log, ct).ConfigureAwait(false);
         return View(vm);
     }
 
@@ -26,23 +32,22 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
         CancellationToken ct)
     {
         var result = await etl.UploadPdfFilesAsync(files ?? [], targetFolder, null, ct).ConfigureAwait(false);
-        var msg = string.Join(" | ", result.Messages);
-        var vm = await BuildVmAsync(ym, msg, result.Saved > 0, result.Saved, result.Skipped, null, ct).ConfigureAwait(false);
-        return View(nameof(Index), vm);
+        SetTempData(string.Join(" | ", result.Messages), result.Saved > 0, result.Saved, result.Skipped, null);
+        return RedirectToAction(nameof(Index), new { ym });
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Run(string? ym, CancellationToken ct)
     {
-        var month = MonthHelper.ParseMonth(ym);
+        var month  = MonthHelper.ParseMonth(ym);
         var folder = MonthInboxFolderFactory.MonthFolderName(month);
-        var run = await etl.RunAsync(month.Year, folder, currentUser.UserId, ct).ConfigureAwait(false);
-        var msg = run.Success
+        var run    = await etl.RunAsync(month.Year, folder, currentUser.UserId, ct).ConfigureAwait(false);
+        var msg    = run.Success
             ? $"Imported {run.TransactionsInserted} transactions ({run.TransactionsSkippedDuplicate} duplicates skipped) from {run.FilesSeen} PDF(s)."
             : "Import encountered errors — check the log below.";
-        var vm = await BuildVmAsync(ym, msg, run.Success, run.TransactionsInserted, run.TransactionsSkippedDuplicate, run.Log, ct).ConfigureAwait(false);
-        return View(nameof(Index), vm);
+        SetTempData(msg, run.Success, run.TransactionsInserted, run.TransactionsSkippedDuplicate, run.Log);
+        return RedirectToAction(nameof(Index), new { ym });
     }
 
     [HttpPost]
@@ -53,8 +58,8 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
         var msg = run.Success
             ? $"Full import: {run.TransactionsInserted} transactions inserted, {run.TransactionsSkippedDuplicate} duplicates skipped, {run.FilesSeen} PDF(s) scanned."
             : "Import encountered errors — check the log below.";
-        var vm = await BuildVmAsync(null, msg, run.Success, run.TransactionsInserted, run.TransactionsSkippedDuplicate, run.Log, ct).ConfigureAwait(false);
-        return View(nameof(Index), vm);
+        SetTempData(msg, run.Success, run.TransactionsInserted, run.TransactionsSkippedDuplicate, run.Log);
+        return RedirectToAction(nameof(Index));
     }
 
     [HttpPost]
@@ -66,21 +71,20 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
     {
         if (file is null || file.Length == 0)
         {
-            var vm0 = await BuildVmAsync(ym, "No file selected.", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData("No file selected.", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
         if (!file.FileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
         {
-            var vm0 = await BuildVmAsync(ym, "Only .txt files are supported for this import.", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData("Only .txt files are supported for this import.", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
 
         using var reader = new StreamReader(file.OpenReadStream(), System.Text.Encoding.UTF8);
         var text = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
         var (inserted, skipped) = await etl.ImportTxtAsync(text, currentUser.UserId, ct).ConfigureAwait(false);
-        var msg = $"TXT import: {inserted} transaction(s) added, {skipped} duplicate(s) skipped.";
-        var vm = await BuildVmAsync(ym, msg, inserted > 0 || skipped > 0, inserted, skipped, null, ct).ConfigureAwait(false);
-        return View(nameof(Index), vm);
+        SetTempData($"TXT import: {inserted} transaction(s) added, {skipped} duplicate(s) skipped.", inserted > 0 || skipped > 0, inserted, skipped, null);
+        return RedirectToAction(nameof(Index), new { ym });
     }
 
     [HttpPost]
@@ -92,16 +96,16 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
     {
         if (file is null || file.Length == 0)
         {
-            var vm0 = await BuildVmAsync(ym, "No file selected.", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData("No file selected.", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
 
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var ext      = Path.GetExtension(file.FileName).ToLowerInvariant();
         var mimeType = ext switch { ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png", _ => null };
         if (mimeType is null)
         {
-            var vm0 = await BuildVmAsync(ym, "Only PNG and JPG screenshots are supported.", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData("Only PNG and JPG screenshots are supported.", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
 
         var llmConfig = await db.LlmConfigs
@@ -109,8 +113,8 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
         if (llmConfig is null)
         {
-            var vm0 = await BuildVmAsync(ym, "No active AI advisor configured. Enable one in Account → AI Advisor settings.", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData("No active AI advisor configured. Enable one in Account → AI Advisor settings.", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
 
         using var ms = new MemoryStream();
@@ -119,35 +123,43 @@ public sealed class ImportController(BudgetEtlService etl, SpendingService spend
         var (lines, error) = await llm.ExtractTransactionsFromImageAsync(llmConfig, ms.ToArray(), mimeType, ct).ConfigureAwait(false);
         if (error is not null)
         {
-            var vm0 = await BuildVmAsync(ym, $"OCR failed: {error}", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData($"OCR failed: {error}", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
         if (lines is null || lines.Count == 0)
         {
-            var vm0 = await BuildVmAsync(ym, "No transactions found in the screenshot.", false, 0, 0, null, ct).ConfigureAwait(false);
-            return View(nameof(Index), vm0);
+            SetTempData("No transactions found in the screenshot.", false, 0, 0, null);
+            return RedirectToAction(nameof(Index), new { ym });
         }
 
         var (inserted, skipped) = await etl.ImportFromOcrAsync(lines, currentUser.UserId, ct).ConfigureAwait(false);
-        var msg = $"Screenshot OCR: {inserted} transaction(s) added, {skipped} duplicate(s) skipped.";
-        var vm = await BuildVmAsync(ym, msg, inserted > 0 || skipped > 0, inserted, skipped, null, ct).ConfigureAwait(false);
-        return View(nameof(Index), vm);
+        SetTempData($"Screenshot OCR: {inserted} transaction(s) added, {skipped} duplicate(s) skipped.", inserted > 0 || skipped > 0, inserted, skipped, null);
+        return RedirectToAction(nameof(Index), new { ym });
+    }
+
+    private void SetTempData(string msg, bool success, int count, int skipped, string? log)
+    {
+        TempData["ImportMsg"]     = msg;
+        TempData["ImportSuccess"] = success;
+        TempData["ImportCount"]   = count;
+        TempData["ImportSkipped"] = skipped;
+        TempData["ImportLog"]     = log;
     }
 
     private async Task<ImportVm> BuildVmAsync(string? ym, string? msg, bool? success, int imported, int skipped, string? etlLog, CancellationToken ct)
     {
         var householdIds = await currentUser.GetHouseholdUserIdsAsync(db, ct).ConfigureAwait(false);
-        var available = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
+        var available    = await spending.GetAvailableMonthsAsync(householdIds, ct).ConfigureAwait(false);
         return new ImportVm
         {
-            MonthYm = MonthHelper.FormatYm(MonthHelper.ParseMonth(ym)),
-            Inbox = etl.GetInboxOverview(),
-            ResultMessage = msg,
-            ResultSuccess = success,
+            MonthYm             = MonthHelper.FormatYm(MonthHelper.ParseMonth(ym)),
+            Inbox               = etl.GetInboxOverview(),
+            ResultMessage       = msg,
+            ResultSuccess       = success,
             TransactionsImported = imported,
             TransactionsSkipped = skipped,
-            EtlLog = etlLog,
-            AvailableMonths = available
+            EtlLog              = etlLog,
+            AvailableMonths     = available
         };
     }
 }

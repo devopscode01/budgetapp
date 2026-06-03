@@ -59,6 +59,54 @@
         }
         <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
            class="btn btn-sm btn-outline-secondary">View Transactions →</a>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="shareReportBtn"
+                data-ym="@Model.MonthYm" data-label="@Model.MonthLabel">
+            ↗ Share Report
+        </button>
+    </div>
+</div>
+
+@* ── Share Report Modal ──────────────────────── *@
+<div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="background:var(--surface-2);border:1px solid var(--border)">
+            <div class="modal-header" style="border-color:var(--border)">
+                <h5 class="modal-title fw-semibold" id="shareModalLabel" style="font-size:.9375rem">Share Report</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">
+                    Share your <strong id="shareMonthLabel"></strong> budget summary. The link is valid for 90 days.
+                </p>
+
+                @* Link tab *@
+                <ul class="nav nav-tabs mb-3" id="shareTabs" style="font-size:.8125rem">
+                    <li class="nav-item">
+                        <button class="nav-link active" id="tab-link" data-bs-toggle="tab" data-bs-target="#pane-link">Copy Link</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="tab-users" data-bs-toggle="tab" data-bs-target="#pane-users">Internal Users</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="pane-link">
+                        <div id="shareLoading" class="text-center py-3" style="font-size:.8125rem;color:var(--tm)">Generating link…</div>
+                        <div id="shareLinkRow" class="input-group" style="display:none!important">
+                            <input type="text" id="shareLinkInput" class="form-control form-control-sm" readonly
+                                   style="font-size:.8125rem;background:var(--surface-1);color:var(--t1);border-color:var(--border)" />
+                            <button class="btn btn-sm btn-outline-secondary" id="copyLinkBtn" type="button">Copy</button>
+                        </div>
+                        <p id="copySuccess" class="mt-2 mb-0" style="font-size:.8125rem;color:#10B981;display:none">✓ Copied to clipboard</p>
+                    </div>
+
+                    <div class="tab-pane fade" id="pane-users">
+                        <div id="usersLoading" class="text-center py-3" style="font-size:.8125rem;color:var(--tm)">Loading users…</div>
+                        <div id="usersList" style="display:none"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -367,6 +415,89 @@
             chart.data.datasets[0].borderColor = dark ? '#161928' : '#ffffff';
             chart.update('none');
         };
+    })();
+    </script>
+    <script>
+    (function () {
+        var shareBtn   = document.getElementById('shareReportBtn');
+        var modal      = new bootstrap.Modal(document.getElementById('shareModal'));
+        var linkInput  = document.getElementById('shareLinkInput');
+        var linkRow    = document.getElementById('shareLinkRow');
+        var loading    = document.getElementById('shareLoading');
+        var copyBtn    = document.getElementById('copyLinkBtn');
+        var copyOk     = document.getElementById('copySuccess');
+        var usersLoad  = document.getElementById('usersLoading');
+        var usersList  = document.getElementById('usersList');
+        var monthLabel = document.getElementById('shareMonthLabel');
+        var generated  = false;
+        var usersLoaded= false;
+
+        if (!shareBtn) return;
+
+        shareBtn.addEventListener('click', function () {
+            var ym    = shareBtn.dataset.ym;
+            var label = shareBtn.dataset.label;
+            monthLabel.textContent = label;
+            modal.show();
+
+            if (!generated) {
+                generated = true;
+                var csrf = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                fetch('/Report/Share?ym=' + encodeURIComponent(ym), {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': csrf, 'X-CSRF-TOKEN': csrf }
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    linkInput.value = d.url;
+                    loading.style.display = 'none';
+                    linkRow.style.removeProperty('display');
+                })
+                .catch(function() {
+                    loading.textContent = 'Could not generate link.';
+                });
+            }
+        });
+
+        copyBtn.addEventListener('click', function () {
+            navigator.clipboard.writeText(linkInput.value).then(function () {
+                copyOk.style.display = '';
+                setTimeout(function () { copyOk.style.display = 'none'; }, 2500);
+            });
+        });
+
+        document.getElementById('tab-users').addEventListener('click', function () {
+            if (usersLoaded) return;
+            usersLoaded = true;
+            fetch('/Report/InternalUsers')
+                .then(function(r) { return r.json(); })
+                .then(function(users) {
+                    usersLoad.style.display = 'none';
+                    if (!users.length) {
+                        usersList.innerHTML = '<p style="font-size:.8125rem;color:var(--tm)">No other approved users in the app.</p>';
+                    } else {
+                        var html = '<div class="list-group list-group-flush">';
+                        users.forEach(function(u) {
+                            html += '<div class="list-group-item d-flex justify-content-between align-items-center px-0" style="background:transparent;border-color:var(--border)">' +
+                                '<div><div style="font-size:.875rem;font-weight:500">' + u.displayName + '</div>' +
+                                '<div style="font-size:.75rem;color:var(--tm)">' + u.email + '</div></div>' +
+                                '<button class="btn btn-sm btn-outline-secondary copy-user-link" data-name="' + u.displayName + '">Copy link</button>' +
+                                '</div>';
+                        });
+                        html += '</div>';
+                        usersList.innerHTML = html;
+                    }
+                    usersList.style.display = '';
+                    usersList.querySelectorAll('.copy-user-link').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            navigator.clipboard.writeText(linkInput.value).then(function() {
+                                btn.textContent = 'Copied!';
+                                setTimeout(function() { btn.textContent = 'Copy link'; }, 2000);
+                            });
+                        });
+                    });
+                });
+        });
     })();
     </script>
 }

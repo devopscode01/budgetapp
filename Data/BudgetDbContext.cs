@@ -16,6 +16,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
     public DbSet<BillPayment> BillPayments => Set<BillPayment>();
     public DbSet<LlmConfig> LlmConfigs => Set<LlmConfig>();
     public DbSet<UserCategory> UserCategories => Set<UserCategory>();
+    public DbSet<ReportToken> ReportTokens => Set<ReportToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -122,6 +123,15 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Color).HasMaxLength(20);
             e.Property(x => x.Keywords).HasMaxLength(2000);
+        });
+
+        modelBuilder.Entity<ReportToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.UserId).HasMaxLength(128);
+            e.Property(x => x.SharedByName).HasMaxLength(256);
         });
     }
 
@@ -271,6 +281,19 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
 
         // Additive column migrations — SQLite doesn't support IF NOT EXISTS for ADD COLUMN,
         // so we catch the "duplicate column" error and ignore it.
+        // ReportTokens table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "ReportTokens" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_ReportTokens" PRIMARY KEY,
+                "UserId" TEXT NOT NULL DEFAULT '',
+                "Month" TEXT NOT NULL DEFAULT '',
+                "CreatedUtc" TEXT NOT NULL DEFAULT '',
+                "ExpiresUtc" TEXT NOT NULL DEFAULT '',
+                "SharedByName" TEXT NOT NULL DEFAULT ''
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
         foreach (var sql in new[]
         {
             "ALTER TABLE \"ParsedTransactions\" ADD COLUMN \"UserId\" TEXT NOT NULL DEFAULT ''",

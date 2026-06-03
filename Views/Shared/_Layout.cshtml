@@ -168,7 +168,8 @@
 
     function isYmPage(pathname) {
         var p = pathname.replace(/\/+$/, '').toLowerCase() || '/';
-        return YM_PATHS.some(function (x) { return p === x || p.startsWith(x + '/'); });
+        // Exact match only — never redirect sub-actions like /import/upload or /import/run
+        return YM_PATHS.indexOf(p) >= 0 || YM_PATHS.some(function (x) { return p === x + '/index'; });
     }
 
     // Determine active month: URL param > localStorage > today

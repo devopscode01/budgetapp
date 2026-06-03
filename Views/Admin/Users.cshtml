@@ -5,84 +5,100 @@
     var myId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 }
 
-<div class="container py-4">
-    <h2 class="mb-4">User Management</h2>
-
-    <table class="table table-hover">
-        <thead>
-            <tr>
-                <th>User</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Admin</th>
-                <th>Joined</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var user in Model)
-            {
-                <tr>
-                    <td>
-                        @user.DisplayName
-                        @if (user.Id == myId) { <span class="badge bg-secondary">you</span> }
-                    </td>
-                    <td class="text-muted small">@user.Email</td>
-                    <td>
-                        @if (user.IsApproved)
-                        {
-                            <span class="badge bg-success">Approved</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-warning text-dark">Pending</span>
-                        }
-                    </td>
-                    <td>
-                        @if (user.IsAdmin)
-                        {
-                            <span class="badge bg-primary">Admin</span>
-                        }
-                    </td>
-                    <td class="text-muted small">@user.CreatedUtc.ToString("MMM d, yyyy")</td>
-                    <td>
-                        @if (user.Id != myId)
-                        {
-                            <div class="d-flex gap-2">
-                                @if (!user.IsApproved)
-                                {
-                                    <form method="post" asp-controller="Admin" asp-action="Approve">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="id" value="@user.Id" />
-                                        <button type="submit" class="btn btn-sm btn-success">Approve</button>
-                                    </form>
-                                }
-                                else
-                                {
-                                    <form method="post" asp-controller="Admin" asp-action="Revoke">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="id" value="@user.Id" />
-                                        <button type="submit" class="btn btn-sm btn-outline-warning">Revoke</button>
-                                    </form>
-                                }
-                                <form method="post" asp-controller="Admin" asp-action="ToggleAdmin">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="id" value="@user.Id" />
-                                    <button type="submit" class="btn btn-sm btn-outline-secondary">
-                                        @(user.IsAdmin ? "Remove admin" : "Make admin")
-                                    </button>
-                                </form>
-                            </div>
-                        }
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-
-    <div class="alert alert-info mt-3">
-        <strong>Adding new users:</strong> Create accounts in <a href="http://localhost:8180" target="_blank">Keycloak admin</a>
-        (realm <code>budget</code>). New users appear here after their first login attempt.
-        Approve them to grant access.
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">User Management</h4>
+        <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">@Model.Count user(s)</p>
     </div>
+    <a asp-controller="Admin" asp-action="Backup" class="btn btn-sm btn-outline-secondary">
+        ↓ Download Backup
+    </a>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table budget-table mb-0">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Admin</th>
+                    <th>Joined</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var user in Model)
+                {
+                    <tr>
+                        <td class="fw-medium">
+                            @user.DisplayName
+                            @if (user.Id == myId) { <span class="badge bg-secondary ms-1">you</span> }
+                        </td>
+                        <td style="font-size:.8125rem;color:var(--tm)">@user.Email</td>
+                        <td>
+                            @if (user.IsApproved)
+                            {
+                                <span class="badge bg-success">Approved</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning text-dark">Pending</span>
+                            }
+                        </td>
+                        <td>
+                            @if (user.IsAdmin)
+                            {
+                                <span class="badge bg-primary">Admin</span>
+                            }
+                        </td>
+                        <td style="font-size:.8125rem;color:var(--tm)">@user.CreatedUtc.ToString("MMM d, yyyy")</td>
+                        <td>
+                            @if (user.Id != myId)
+                            {
+                                <div class="d-flex gap-2 flex-wrap">
+                                    @if (!user.IsApproved)
+                                    {
+                                        <form method="post" asp-controller="Admin" asp-action="Approve">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@user.Id" />
+                                            <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <form method="post" asp-controller="Admin" asp-action="Revoke">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@user.Id" />
+                                            <button type="submit" class="btn btn-sm btn-outline-warning">Revoke</button>
+                                        </form>
+                                    }
+                                    <form method="post" asp-controller="Admin" asp-action="ToggleAdmin">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@user.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                            @(user.IsAdmin ? "Remove admin" : "Make admin")
+                                        </button>
+                                    </form>
+                                    <form method="post" asp-controller="Admin" asp-action="DeleteUser"
+                                          onsubmit="return confirm('Delete @Html.Raw(user.DisplayName.Replace("'","&#39;"))? This removes all their data and cannot be undone.')">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@user.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="alert alert-info mt-4" style="font-size:.8125rem">
+    <strong>Adding new users:</strong> Create accounts in
+    <a href="http://localhost:8180" target="_blank">Keycloak admin</a>
+    (realm <code>budget</code>). New users appear here after their first login attempt. Approve them to grant access.
 </div>
