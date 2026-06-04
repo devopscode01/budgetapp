@@ -31,6 +31,23 @@
         .OrderByDescending(c => c.Amount)
         .ToList();
 
+    // Month-over-month helpers
+    var prevIncome = Model.PrevMonth?.TotalIncome ?? 0;
+    var prevSpent  = Model.PrevMonth?.TotalSpend  ?? 0;
+    // decimal DeltaPct(decimal cur, decimal prev) => prev == 0 ? 0 : (cur - prev) / prev * 100;
+    string DeltaBadge(decimal cur, decimal prev, bool lowerIsBetter = false) {
+        if (prev == 0) return "";
+        var d = cur - prev;
+        if (Math.Abs(d) < 0.01m) return "";
+        var good = lowerIsBetter ? d < 0 : d > 0;
+        var col  = good ? "#10B981" : "#EF4444";
+        var sign = d > 0 ? "+" : "";
+        return $"<span style='font-size:.7rem;color:{col};font-weight:600'>{sign}{d:C0} vs last mo</span>";
+    }
+
+    // Budget goal lookup
+    var goalMap = Model.BudgetGoals.ToDictionary(g => (ExpenseCategory)g.Category);
+
     var subs = Model.Current.Transactions
         .Where(t => t.Category == ExpenseCategory.Subscriptions)
         .Concat(Model.Current.ManualExpenses
@@ -110,14 +127,55 @@
     </div>
 </div>
 
-@* ── Demo banner (no data) ───────────────────── *@
-@if (income == 0 && !Model.Current.Transactions.Any() && !Model.Current.ManualExpenses.Any())
+@* ── Onboarding (no data at all) ─────────────── *@
+@if (Model.IsFirstMonth && !Model.Current.Transactions.Any() && !Model.Current.ManualExpenses.Any())
+{
+    <div class="card mb-4" style="border:2px dashed var(--border)">
+        <h5 class="fw-semibold mb-1">👋 Welcome — let's set up your budget</h5>
+        <p style="font-size:.8125rem;color:var(--tm)" class="mb-3">Follow these 3 steps to get your first month of data in.</p>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div style="background:var(--surface-1);border-radius:var(--radius-sm);padding:.875rem">
+                    <div style="font-size:.75rem;font-weight:700;color:var(--brand);margin-bottom:.25rem">STEP 1</div>
+                    <div class="fw-semibold mb-1" style="font-size:.875rem">Record your income</div>
+                    <p style="font-size:.8125rem;color:var(--tm);margin-bottom:.625rem">Add your salary or any income for this month.</p>
+                    <a asp-controller="Manual" asp-action="Index" asp-route-ym="@Model.MonthYm" class="btn btn-sm btn-primary">Add income →</a>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div style="background:var(--surface-1);border-radius:var(--radius-sm);padding:.875rem">
+                    <div style="font-size:.75rem;font-weight:700;color:var(--brand);margin-bottom:.25rem">STEP 2</div>
+                    <div class="fw-semibold mb-1" style="font-size:.875rem">Import a bank statement</div>
+                    <p style="font-size:.8125rem;color:var(--tm);margin-bottom:.625rem">Upload a PDF, TXT, or screenshot from your bank.</p>
+                    <a asp-controller="Import" asp-action="Index" asp-route-ym="@Model.MonthYm" class="btn btn-sm btn-outline-secondary">Import statement →</a>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div style="background:var(--surface-1);border-radius:var(--radius-sm);padding:.875rem">
+                    <div style="font-size:.75rem;font-weight:700;color:var(--brand);margin-bottom:.25rem">STEP 3</div>
+                    <div class="fw-semibold mb-1" style="font-size:.875rem">Set spending goals</div>
+                    <p style="font-size:.8125rem;color:var(--tm);margin-bottom:.625rem">Set monthly limits per category to stay on track.</p>
+                    <a href="#budgetGoalsSection" class="btn btn-sm btn-outline-secondary">Set goals →</a>
+                </div>
+            </div>
+        </div>
+        <div class="mt-3 pt-3" style="border-top:1px solid var(--border);font-size:.8125rem;color:var(--tm)">
+            Or try the demo to see how it looks with real data:
+            <form method="post" asp-controller="Demo" asp-action="Seed" class="d-inline ms-2">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <button type="submit" class="btn btn-sm btn-primary">Load Demo Account</button>
+            </form>
+        </div>
+    </div>
+}
+else if (income == 0 && !Model.Current.Transactions.Any() && !Model.Current.ManualExpenses.Any())
 {
     <div class="demo-banner mb-4">
         <div class="demo-icon">💡</div>
         <div class="demo-body">
             <div class="demo-title">No data for @Model.MonthLabel</div>
-            <div class="demo-desc">Load a demo account to see how the dashboard works with real numbers — or <a asp-controller="Manual" asp-action="Index" asp-route-ym="@Model.MonthYm">add income manually</a> and <a asp-controller="Import" asp-action="Index" asp-route-ym="@Model.MonthYm">import a PDF statement</a>.</div>
+            <div class="demo-desc">Add income or import a statement to get started.</div>
         </div>
         <form method="post" asp-controller="Demo" asp-action="Seed" class="flex-shrink-0">
             @Html.AntiForgeryToken()
@@ -164,7 +222,7 @@
                    class="metric-card h-100" title="View income transactions">
                     <div class="m-label">Income</div>
                     <div class="m-value text-success text-money">@income.ToString("C0")</div>
-                    <div class="m-sub">This month ↗</div>
+                    <div class="m-sub">@Html.Raw(DeltaBadge(income, prevIncome))</div>
                 </a>
             </div>
             <div class="col-6 col-xl-3">
@@ -172,7 +230,7 @@
                    class="metric-card h-100" title="View all spending">
                     <div class="m-label">Spent</div>
                     <div class="m-value text-money">@spent.ToString("C0")</div>
-                    <div class="m-sub">@(spendCats.Count) categories ↗</div>
+                    <div class="m-sub">@Html.Raw(DeltaBadge(spent, prevSpent, lowerIsBetter: true))</div>
                 </a>
             </div>
             <div class="col-6 col-xl-3">
@@ -185,14 +243,30 @@
                     <div class="m-sub">@(net >= 0 ? "Under budget" : "Over budget") ↗</div>
                 </a>
             </div>
-            <div class="col-6 col-xl-3">
-                <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
-                   class="metric-card h-100" title="View all transactions">
-                    <div class="m-label">Transactions</div>
-                    <div class="m-value">@(Model.Current.Transactions.Count + Model.Current.ManualExpenses.Count)</div>
-                    <div class="m-sub">@Model.Current.Transactions.Count imported ↗</div>
-                </a>
-            </div>
+            @if (Model.CashFlowForecast.HasValue)
+            {
+                var fcv = Model.CashFlowForecast.Value;
+                <div class="col-6 col-xl-3">
+                    <div class="metric-card h-100">
+                        <div class="m-label">Month Forecast</div>
+                        <div class="m-value text-money @(fcv >= 0 ? "text-success" : "text-danger")">
+                            @(fcv >= 0 ? "+" : "")@fcv.ToString("C0")
+                        </div>
+                        <div class="m-sub" style="font-size:.7rem;color:var(--tm)">projected end-of-month</div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="col-6 col-xl-3">
+                    <a asp-controller="Spending" asp-action="Index" asp-route-ym="@Model.MonthYm"
+                       class="metric-card h-100" title="View all transactions">
+                        <div class="m-label">Transactions</div>
+                        <div class="m-value">@(Model.Current.Transactions.Count + Model.Current.ManualExpenses.Count)</div>
+                        <div class="m-sub">@Model.Current.Transactions.Count imported ↗</div>
+                    </a>
+                </div>
+            }
         </div>
     </div>
 </div>
@@ -291,6 +365,85 @@
         </div>
     </div>
 </div>
+
+@* ── Budget Goals ─────────────────────────────── *@
+<div class="card mb-3" id="budgetGoalsSection">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div class="section-title mb-0">Budget Goals</div>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#addGoalForm">
+            + Set limit
+        </button>
+    </div>
+
+    <div class="collapse mb-3" id="addGoalForm">
+        <form method="post" asp-controller="BudgetGoal" asp-action="Upsert" class="d-flex gap-2 flex-wrap align-items-end">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="ym" value="@Model.MonthYm" />
+            <div>
+                <label class="form-label" style="font-size:.8125rem">Category</label>
+                <select name="category" class="form-select form-select-sm" style="min-width:140px">
+                    @foreach (var cat in spendCats)
+                    {
+                        <option value="@((int)cat.Category)">@CatLabel(cat.Category)</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label class="form-label" style="font-size:.8125rem">Monthly limit ($)</label>
+                <input type="number" name="limit" min="0" step="10" class="form-control form-control-sm" style="width:120px" placeholder="e.g. 500" />
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+        </form>
+        <p style="font-size:.75rem;color:var(--tm)" class="mt-1 mb-0">Set limit to 0 to remove a goal.</p>
+    </div>
+
+    @if (!Model.BudgetGoals.Any() && !spendCats.Any())
+    {
+        <p style="font-size:.875rem;color:var(--tm)">Import transactions first, then set spending limits per category.</p>
+    }
+    else if (!Model.BudgetGoals.Any())
+    {
+        <p style="font-size:.875rem;color:var(--tm)">No goals set yet. Click "+ Set limit" to add your first monthly budget target.</p>
+    }
+    else
+    {
+        @foreach (var goal in Model.BudgetGoals)
+        {
+            var cat      = (ExpenseCategory)goal.Category;
+            var catTotal = spendCats.FirstOrDefault(c => c.Category == cat);
+            var actual   = catTotal?.Amount ?? 0m;
+            var pct      = goal.MonthlyLimit > 0 ? Math.Min((double)(actual / goal.MonthlyLimit * 100), 100) : 0;
+            var over     = actual > goal.MonthlyLimit;
+            var barColor = pct < 70 ? "#10B981" : pct < 90 ? "#F59E0B" : "#EF4444";
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="cat-badge" style="background:@(CatColor(cat))22;color:@CatColor(cat)">@CatLabel(cat)</span>
+                    <div class="d-flex align-items-center gap-2">
+                        @if (over)
+                        {
+                            <span style="font-size:.75rem;color:#EF4444;font-weight:600">Over by @((actual - goal.MonthlyLimit).ToString("C0"))</span>
+                        }
+                        <span style="font-size:.8125rem;color:var(--tm)">@actual.ToString("C0") / @goal.MonthlyLimit.ToString("C0")</span>
+                    </div>
+                </div>
+                <div class="prog-track">
+                    <div class="prog-fill" style="width:@pct.ToString("F1")%;background:@barColor;transition:width .4s"></div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@* ── 6-Month Trend Chart ───────────────────────── *@
+@if (Model.MonthlyTrend.Any(t => t.Spend > 0 || t.Income > 0))
+{
+    <div class="card mb-3">
+        <div class="section-title">6-Month Trend</div>
+        <div style="height:160px;position:relative">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+}
 
 @* ── Subscriptions (Rocket Money style) ──────── *@
 @if (subs.Any())
@@ -417,6 +570,39 @@
         };
     })();
     </script>
+}
+@{
+    var trendLabels = System.Text.Json.JsonSerializer.Serialize(Model.MonthlyTrend.Select(t => t.Month.ToString("MMM yy")));
+    var trendSpend  = System.Text.Json.JsonSerializer.Serialize(Model.MonthlyTrend.Select(t => t.Spend));
+    var trendIncome = System.Text.Json.JsonSerializer.Serialize(Model.MonthlyTrend.Select(t => t.Income));
+}
+@if (Model.MonthlyTrend.Any(t => t.Spend > 0 || t.Income > 0))
+{
+    <script>
+    (function(){
+        var ctx = document.getElementById('trendChart');
+        if (!ctx) return;
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: @Html.Raw(trendLabels),
+                datasets: [
+                    { label: 'Spent',  data: @Html.Raw(trendSpend),  backgroundColor: '#EF444488', borderColor: '#EF4444', borderWidth: 1 },
+                    { label: 'Income', data: @Html.Raw(trendIncome), backgroundColor: '#10B98188', borderColor: '#10B981', borderWidth: 1 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { font: { size: 11 }, color: getComputedStyle(document.documentElement).getPropertyValue('--tm').trim() } } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { font: { size: 10 }, callback: function(v){ return '$' + v.toLocaleString(); } } },
+                    x: { ticks: { font: { size: 10 } } }
+                }
+            }
+        });
+    })();
+    </script>
+}
     <script>
     (function () {
         var shareBtn   = document.getElementById('shareReportBtn');

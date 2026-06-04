@@ -27,4 +27,13 @@ public sealed class ParsedTransaction
 
     /// <summary>User-assigned readable alias (e.g. "Atmos Energy Gas"). Null = use Description for display.</summary>
     public string? Alias { get; set; }
+
+    /// <summary>Optional user note attached to this transaction.</summary>
+    public string? Notes { get; set; }
+
+    /// <summary>True when this transaction has been split into children — excluded from totals.</summary>
+    public bool IsSplit { get; set; }
+
+    /// <summary>For split child rows: the Id of the parent transaction this was split from.</summary>
+    public int? SplitFromId { get; set; }
 }

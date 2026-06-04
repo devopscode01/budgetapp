@@ -1,0 +1,73 @@
+@model IEnumerable<BudgetApp.Models.ParsedTransaction>
+@using BudgetApp.Models
+@{
+    ViewData["Title"] = "Search";
+    var query = ViewBag.Query as string ?? "";
+    var ym    = ViewBag.Ym as string ?? "";
+}
+
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="letter-spacing:-.02em">Search Transactions</h4>
+        @if (!string.IsNullOrEmpty(query))
+        {
+            <p class="mb-0" style="font-size:.8125rem;color:var(--tm)">Results for "<strong>@query</strong>" — @Model.Count() found across all months</p>
+        }
+    </div>
+    <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@ym" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+<div class="card mb-4">
+    <form method="get" asp-action="Search" class="d-flex gap-2">
+        <input type="hidden" name="ym" value="@ym" />
+        <input type="text" name="q" value="@query" class="form-control form-control-sm"
+               placeholder="Search all transactions (description, notes)..." autofocus />
+        <button type="submit" class="btn btn-sm btn-primary">Search</button>
+    </form>
+</div>
+
+@if (!string.IsNullOrEmpty(query))
+{
+    if (!Model.Any())
+    {
+        <div class="card">
+            <p style="font-size:.875rem;color:var(--tm);margin:0">No transactions match "<strong>@query</strong>".</p>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table budget-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Category</th>
+                            <th class="text-end">Amount</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in Model)
+                        {
+                            <tr>
+                                <td style="font-size:.8125rem;color:var(--tm);white-space:nowrap">@t.PostedDate.ToString("MMM d, yyyy")</td>
+                                <td>
+                                    <div style="font-size:.875rem;font-weight:500">@(t.Alias ?? t.Description)</div>
+                                    @if (t.Alias is not null)
+                                    {
+                                        <div style="font-size:.75rem;color:var(--tm)">@t.Description</div>
+                                    }
+                                </td>
+                                <td><span style="font-size:.8125rem;color:var(--tm)">@t.Category</span></td>
+                                <td class="text-end fw-semibold text-money" style="white-space:nowrap">@t.Amount.ToString("C")</td>
+                                <td style="font-size:.8125rem;color:var(--tm)">@t.Notes</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}

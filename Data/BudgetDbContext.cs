@@ -17,6 +17,7 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
     public DbSet<LlmConfig> LlmConfigs => Set<LlmConfig>();
     public DbSet<UserCategory> UserCategories => Set<UserCategory>();
     public DbSet<ReportToken> ReportTokens => Set<ReportToken>();
+    public DbSet<BudgetGoal> BudgetGoals => Set<BudgetGoal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -123,6 +124,13 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             e.Property(x => x.Name).HasMaxLength(200);
             e.Property(x => x.Color).HasMaxLength(20);
             e.Property(x => x.Keywords).HasMaxLength(2000);
+        });
+
+        modelBuilder.Entity<BudgetGoal>(e =>
+        {
+            e.HasIndex(x => x.UserId);
+            e.Property(x => x.UserId).HasMaxLength(128);
+            e.Property(x => x.MonthlyLimit).HasPrecision(18, 2);
         });
 
         modelBuilder.Entity<ReportToken>(e =>
@@ -281,6 +289,18 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
 
         // Additive column migrations — SQLite doesn't support IF NOT EXISTS for ADD COLUMN,
         // so we catch the "duplicate column" error and ignore it.
+        // BudgetGoals table
+        await Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "BudgetGoals" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_BudgetGoals" PRIMARY KEY AUTOINCREMENT,
+                "UserId" TEXT NOT NULL DEFAULT '',
+                "Category" INTEGER NOT NULL DEFAULT 0,
+                "MonthlyLimit" TEXT NOT NULL DEFAULT '0',
+                "CreatedUtc" TEXT NOT NULL DEFAULT ''
+            );
+            """, cancellationToken: ct).ConfigureAwait(false);
+
         // ReportTokens table
         await Database.ExecuteSqlRawAsync(
             """
@@ -307,6 +327,9 @@ public sealed class BudgetDbContext(DbContextOptions<BudgetDbContext> options) :
             "ALTER TABLE \"Debts\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"Assets\" ADD COLUMN \"AddedByName\" TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE \"ParsedTransactions\" ADD COLUMN \"Alias\" TEXT NULL",
+            "ALTER TABLE \"ParsedTransactions\" ADD COLUMN \"Notes\" TEXT NULL",
+            "ALTER TABLE \"ParsedTransactions\" ADD COLUMN \"IsSplit\" INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE \"ParsedTransactions\" ADD COLUMN \"SplitFromId\" INTEGER NULL",
         })
         {
             try { await Database.ExecuteSqlRawAsync(sql, cancellationToken: ct).ConfigureAwait(false); }

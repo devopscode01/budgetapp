@@ -3,6 +3,7 @@ using BudgetApp.Models;
 namespace BudgetApp.ViewModels;
 
 public sealed record CategoryTotal(ExpenseCategory Category, decimal Amount, int Count);
+public sealed record MonthTrendPoint(DateOnly Month, decimal Spend, decimal Income);
 
 public sealed class MonthSpendingVm
 {
@@ -22,8 +23,14 @@ public sealed class DashboardVm
     public string MonthYm { get; init; } = "";
     public string MonthLabel { get; init; } = "";
     public MonthSpendingVm Current { get; init; } = new();
+    public MonthSpendingVm? PrevMonth { get; init; }
     public IReadOnlyList<MonthSpendingVm> Recent { get; init; } = [];
     public IReadOnlyList<string> AvailableMonths { get; init; } = [];
+    public IReadOnlyList<BudgetApp.Models.BudgetGoal> BudgetGoals { get; init; } = [];
+    public IReadOnlyList<MonthTrendPoint> MonthlyTrend { get; init; } = [];
+    /// <summary>Projected end-of-month balance (income - estimated full-month spend). Null if not enough data.</summary>
+    public decimal? CashFlowForecast { get; init; }
+    public bool IsFirstMonth { get; init; }
 }
 
 public sealed class ImportVm

@@ -68,8 +68,14 @@
             total across @spendCats.Count categories
         </p>
     </div>
-    <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@Model.MonthYm"
-       class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+    <div class="d-flex gap-2 flex-wrap">
+        <a asp-controller="Spending" asp-action="Search" asp-route-ym="@Model.MonthYm"
+           class="btn btn-sm btn-outline-secondary">🔍 Search all months</a>
+        <a asp-controller="Spending" asp-action="Export" asp-route-ym="@Model.MonthYm"
+           class="btn btn-sm btn-outline-secondary">↓ Export CSV</a>
+        <a asp-controller="Dashboard" asp-action="Index" asp-route-ym="@Model.MonthYm"
+           class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+    </div>
 </div>
 
 @* ── Category filter chips ─────────────────── *@
@@ -225,14 +231,20 @@
                         var txCatVisible = activeCategory == null || txCat == activeCategory ? "1" : "0";
                         <tr data-cat="@txCat" data-catvisible="@txCatVisible" data-desc="@tx.Description.ToLowerInvariant()">
                             <td class="text-nowrap" style="color:var(--tf)">@tx.PostedDate.ToString("MMM d")</td>
-                            <td style="max-width:260px" class="text-truncate">@tx.Description</td>
+                            <td style="max-width:240px">
+                                <div class="text-truncate">@(tx.Alias ?? tx.Description)</div>
+                                @if (tx.Notes is not null)
+                                {
+                                    <div style="font-size:.72rem;color:var(--tm);font-style:italic" class="text-truncate">@tx.Notes</div>
+                                }
+                            </td>
                             <td>
                                 <span class="cat-badge" style="background:@(CatColor(tx.Category))22;color:@CatColor(tx.Category)">
                                     @CatLabel(tx.Category)
                                 </span>
                             </td>
                             <td class="text-end text-money">@tx.Amount.ToString("C2")</td>
-                            <td style="width:64px;white-space:nowrap">
+                            <td style="width:90px;white-space:nowrap">
                                 <button class="btn btn-link btn-xs text-muted recategorize-btn p-0"
                                         data-id="@tx.Id"
                                         data-current="@((int)tx.Category)"
@@ -240,6 +252,18 @@
                                         data-amount="@tx.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
                                         title="Edit transaction"
                                         style="font-size:1rem;line-height:1">&#9998;</button>
+                                <button class="btn btn-link btn-xs text-muted note-btn p-0 ms-1"
+                                        data-id="@tx.Id"
+                                        data-notes="@(tx.Notes ?? "")"
+                                        title="Add/edit note"
+                                        style="font-size:.9rem;line-height:1">📝</button>
+                                <button class="btn btn-link btn-xs text-muted split-btn p-0 ms-1"
+                                        data-id="@tx.Id"
+                                        data-description="@tx.Description"
+                                        data-amount="@tx.Amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
+                                        data-current="@((int)tx.Category)"
+                                        title="Split transaction"
+                                        style="font-size:.85rem;line-height:1">⑂</button>
                                 <form method="post" asp-controller="Spending" asp-action="DeleteTransaction" class="d-inline delete-tx-form">
                                     @Html.AntiForgeryToken()
                                     <input type="hidden" name="ym" value="@Model.MonthYm" />
@@ -345,6 +369,77 @@
     </div>
 </div>
 
+@* ── Note modal ───────────────────────────────── *@
+<div class="modal fade" id="noteModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">Transaction Note</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-controller="Spending" asp-action="SaveNote">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <input type="hidden" name="id" id="noteId" />
+                <div class="modal-body">
+                    <textarea name="notes" id="noteText" class="form-control form-control-sm" rows="3"
+                              placeholder="Add a note (e.g. 'reimbursed', 'birthday gift')..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Save Note</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@* ── Split modal ──────────────────────────────── *@
+<div class="modal fade" id="splitModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title">Split Transaction</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-controller="Spending" asp-action="SplitTransaction" id="splitForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="ym" value="@Model.MonthYm" />
+                <input type="hidden" name="id" id="splitId" />
+                <div class="modal-body">
+                    <p style="font-size:.8125rem;color:var(--tm)" class="mb-3" id="splitDesc"></p>
+                    <div id="splitRows">
+                        @for (var si = 0; si < 2; si++)
+                        {
+                            <div class="d-flex gap-2 mb-2 split-row">
+                                <select name="splitCategory" class="form-select form-select-sm" style="flex:2">
+                                    @foreach (var c in categories)
+                                    {
+                                        <option value="@((int)c)">@CatLabel(c)</option>
+                                    }
+                                </select>
+                                <input type="number" name="splitAmount" step="0.01" min="0" class="form-control form-control-sm split-amount" style="flex:1" placeholder="0.00" />
+                                @if (si > 0)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger remove-split">✕</button>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="addSplitRow">+ Add row</button>
+                        <span style="font-size:.8125rem;color:var(--tm)">Remaining: <strong id="splitRemaining">—</strong></span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Split</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
 <script>
 document.querySelectorAll('.delete-tx-form').forEach(function(form) {
@@ -384,6 +479,61 @@ document.querySelectorAll('.recategorize-btn').forEach(function(btn) {
 
     searchInput.addEventListener('input', applyFilter);
     applyFilter(); // apply initial category visibility
+})();
+
+// Notes
+document.querySelectorAll('.note-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        document.getElementById('noteId').value = btn.dataset.id;
+        document.getElementById('noteText').value = btn.dataset.notes || '';
+        new bootstrap.Modal(document.getElementById('noteModal')).show();
+    });
+});
+
+// Split
+(function() {
+    var splitTotal = 0;
+    document.querySelectorAll('.split-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            splitTotal = parseFloat(btn.dataset.amount) || 0;
+            document.getElementById('splitId').value = btn.dataset.id;
+            document.getElementById('splitDesc').textContent = btn.dataset.description + ' — $' + splitTotal.toFixed(2);
+            document.querySelectorAll('.split-amount').forEach(function(inp) { inp.value = ''; });
+            var firstCat = document.querySelectorAll('[name="splitCategory"]')[0];
+            if (firstCat) firstCat.value = btn.dataset.current;
+            updateRemaining();
+            new bootstrap.Modal(document.getElementById('splitModal')).show();
+        });
+    });
+
+    function updateRemaining() {
+        var used = 0;
+        document.querySelectorAll('.split-amount').forEach(function(inp) {
+            used += parseFloat(inp.value) || 0;
+        });
+        var rem = splitTotal - used;
+        document.getElementById('splitRemaining').textContent = '$' + rem.toFixed(2);
+        document.getElementById('splitRemaining').style.color = Math.abs(rem) < 0.01 ? '#10B981' : '#EF4444';
+    }
+
+    document.getElementById('splitModal').addEventListener('input', updateRemaining);
+
+    document.getElementById('addSplitRow').addEventListener('click', function() {
+        var row = document.querySelector('.split-row').cloneNode(true);
+        row.querySelector('.split-amount').value = '';
+        var rm = row.querySelector('.remove-split');
+        if (!rm) {
+            rm = document.createElement('button');
+            rm.type = 'button'; rm.className = 'btn btn-sm btn-outline-danger remove-split'; rm.textContent = '✕';
+            row.appendChild(rm);
+        }
+        rm.addEventListener('click', function() { row.remove(); updateRemaining(); });
+        document.getElementById('splitRows').appendChild(row);
+    });
+
+    document.querySelectorAll('.remove-split').forEach(function(btn) {
+        btn.addEventListener('click', function() { btn.closest('.split-row').remove(); updateRemaining(); });
+    });
 })();
 </script>
 }
